@@ -19,7 +19,7 @@ switch arguments[1] {
 case "notify-success":
     let notification = Process()
     notification.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-    notification.arguments = ["-e", "display notification \"最新版本已启动，可以继续输入。\" with title \"五笔重新加载成功\""]
+    notification.arguments = ["-e", "display notification \"最新版本已启动，可以继续输入。\" with title \"小桃的五笔重新加载成功\""]
     do {
         try notification.run()
         notification.waitUntilExit()
@@ -40,7 +40,7 @@ case "stop":
     let applications = NSRunningApplication.runningApplications(withBundleIdentifier: identifier)
     for app in applications {
         // A background input method may not respond to an ordinary Quit request.
-        guard app.forceTerminate() || app.isTerminated else { fail("无法停止五笔输入法进程") }
+        guard app.forceTerminate() || app.isTerminated else { fail("无法停止小桃的五笔输入法进程") }
     }
     let deadline = Date(timeIntervalSinceNow: 5)
     while applications.contains(where: { !$0.isTerminated }) && Date() < deadline {
@@ -55,6 +55,6 @@ case "select":
            TISSelectInputSource(source) == noErr { exit(0) }
         RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
     }
-    fail("更新已完成，但无法恢复输入源，请从菜单栏手动选择五笔")
+    fail("更新已完成，但无法恢复输入源，请从菜单栏手动选择「小桃的五笔」")
 default: fail("未知命令")
 }

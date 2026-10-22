@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.movsb.inputmethod.Wubi</string>
-<key>CFBundleName</key><string>五笔</string>
-<key>CFBundleDisplayName</key><string>五笔</string>
+<key>CFBundleName</key><string>小桃的五笔</string>
+<key>CFBundleDisplayName</key><string>小桃的五笔</string>
 <key>CFBundleExecutable</key><string>Wubi</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>

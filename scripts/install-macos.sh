@@ -9,4 +9,4 @@ if [ -e "$destination" ]; then
 fi
 mkdir -p "$HOME/Library/Input Methods"
 ditto build/Wubi.app "$destination"
-echo '安装完成。请注销并重新登录，然后在系统设置 → 键盘 → 文本输入 → 编辑 → + → 简体中文中添加「五笔」。'
+echo '安装完成。请注销并重新登录，然后在系统设置 → 键盘 → 文本输入 → 编辑 → + → 简体中文中添加「小桃的五笔」。'

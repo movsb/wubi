@@ -52,12 +52,12 @@ class WubiInputController: IMKInputController {
     }
 
     override func menu() -> NSMenu! {
-        let menu = NSMenu(title: "五笔")
+        let menu = NSMenu(title: "小桃的五笔")
         menu.autoenablesItems = false
         let item = NSMenuItem(title: "重新构建并加载输入法", action: #selector(rebuildAndReload(_:)), keyEquivalent: "")
         item.target = self
         item.isEnabled = reloadScript != nil && Self.reloadProcess == nil
-        item.toolTip = "从本机源码构建并重启五笔，无需注销"
+        item.toolTip = "从本机源码构建并重启小桃的五笔，无需注销"
         menu.addItem(item)
         let reload = NSMenuItem(title: "重新加载词库", action: #selector(reloadDictionaries(_:)), keyEquivalent: "")
         reload.target = self
