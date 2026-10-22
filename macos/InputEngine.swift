@@ -46,6 +46,10 @@ struct InputEngine {
             selectedIndex = 0
             return refresh()
         }
+        if !key.capsLock, !choices.isEmpty, [",", ".", "，", "。"].contains(text) {
+            selectPage(page + ((text == "," || text == "，") ? -1 : 1))
+            return refresh()
+        }
         if !key.capsLock, let symbol = punctuation.convert(text) {
             var effects = commit()
             effects.append(insert(symbol))
@@ -68,10 +72,6 @@ struct InputEngine {
             selectedIndex = max(0, selectedIndex - 1)
         case 125:
             selectedIndex = min(max(0, choices.count - 1), selectedIndex + 1)
-        case 123, 116:
-            selectPage(page - 1)
-        case 124, 121:
-            selectPage(page + 1)
         default:
             if let digit = Int(text), (1...9).contains(digit) {
                 let index = page * 9 + digit - 1
@@ -79,8 +79,6 @@ struct InputEngine {
                     return InputResult(handled: true, effects: [insert(choices[index])])
                 }
                 return InputResult(handled: true)
-            } else if text == "-" || text == "=" {
-                selectPage(page + (text == "=" ? 1 : -1))
             } else {
                 return InputResult(handled: false, effects: commit())
             }
