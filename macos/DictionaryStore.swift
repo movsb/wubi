@@ -115,12 +115,9 @@ final class DictionaryStore {
             }
         }
         let bundled = files(resourceDirectory)
-        let pinyinNames = ["pinyin_simp.dict.yaml", "rime_ice.dict.yaml"]
-        let preferredPinyin = bundled.contains { $0.lastPathComponent == "rime_ice.dict.yaml" }
-            ? "rime_ice.dict.yaml" : "pinyin_simp.dict.yaml"
-        let wubiRows = rows(bundled.filter { !(pinyinNames + ["wubi_merged.dict.yaml"]).contains($0.lastPathComponent) })
+        let wubiRows = rows(bundled.filter { !["pinyin_simp.dict.yaml", "wubi_merged.dict.yaml"].contains($0.lastPathComponent) })
             + rows(files(userWubi))
-        let pinyinRows = rows(bundled.filter { $0.lastPathComponent == preferredPinyin }) + rows(files(userPinyin))
+        let pinyinRows = rows(bundled.filter { $0.lastPathComponent == "pinyin_simp.dict.yaml" }) + rows(files(userPinyin))
         var newPinyin = PinyinDictionary(rows: pinyinRows)
         struct Settings: Decodable { let mergePinyinIntoWubi: Bool? }
         let settingsURL = dataDirectory.appendingPathComponent("settings.json")

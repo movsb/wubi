@@ -99,7 +99,7 @@ func runPinyinTests() throws {
     session.modifiers(code: 60, leftDown: false)
     check(!session.engine.pinyinMode, "deactivation cancels pending right Shift tap")
 
-    let realPath = FileManager.default.fileExists(atPath: "rime_ice.dict.yaml") ? "rime_ice.dict.yaml" : "pinyin_simp.dict.yaml"
+    let realPath = "pinyin_simp.dict.yaml"
     if FileManager.default.fileExists(atPath: realPath) {
         let real = try PinyinDictionary(url: URL(fileURLWithPath: realPath))
         check(real.count > 60000, "full upstream Pinyin dictionary loads")

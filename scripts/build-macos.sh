@@ -7,8 +7,8 @@ if [ ${#dicts[@]} -eq 0 ]; then
   echo '没有词库，请先运行 ./get-dicts.sh' >&2
   exit 1
 fi
-if [ ! -f rime_ice.dict.yaml ] && [ ! -f pinyin_simp.dict.yaml ]; then
-  echo '没有拼音词库，请先运行 ./get-rime-ice-dict.sh' >&2
+if [ ! -f pinyin_simp.dict.yaml ]; then
+  echo '没有拼音词库，请先运行 ./get-pinyin-dict.sh' >&2
   exit 1
 fi
 app="$PWD/build/Wubi.app"
@@ -18,6 +18,7 @@ cp macos/Info.plist "$app/Contents/Info.plist"
 printf '%s\n' "$PWD" > "$app/Contents/Resources/DevelopmentSourcePath.txt"
 rm -f "$app/Contents/Resources/"*.dict.yaml
 cp "${dicts[@]}" "$app/Contents/Resources/"
+rm -rf "$app/Contents/Resources/licenses"
 ditto licenses "$app/Contents/Resources/licenses"
 xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
   -target "$(uname -m)-apple-macosx13.0" -framework Cocoa -framework InputMethodKit \

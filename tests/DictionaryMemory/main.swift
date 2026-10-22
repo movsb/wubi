@@ -19,7 +19,7 @@ func memory(_ label: String) {
 let data = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 defer { try? FileManager.default.removeItem(at: data) }
 let store = DictionaryStore(resourceDirectory: URL(fileURLWithPath: FileManager.default.currentDirectoryPath), dataDirectory: data, builderURL: URL(fileURLWithPath: CommandLine.arguments[1]), log: { _ in })
-precondition(store.issues.isEmpty && store.pinyin.count > 800000 && store.report!.addedPhrases > 800000)
+precondition(store.issues.isEmpty && store.pinyin.count > 60000 && store.report!.addedPhrases > 15000)
 memory("加载后")
 for _ in 0..<2 {
     autoreleasepool {
@@ -32,7 +32,8 @@ for _ in 0..<2 {
 memory("前缀查询后")
 precondition(store.reload() && store.issues.isEmpty)
 memory("重新加载后")
-precondition(store.pinyin.lookup("xuyixian").contains("盱眙县"))
+precondition(store.pinyin.lookup("nihao").contains("你好"))
+precondition(!store.pinyin.lookup("sanguoqunyingzhuan").contains("三国群英传"))
 
 // Exercise the subprocess boundary with user updates and a failed rebuild.
 let fixtureResources = data.appendingPathComponent("FixtureResources")
@@ -40,7 +41,7 @@ let fixtureData = data.appendingPathComponent("FixtureData")
 try FileManager.default.createDirectory(at: fixtureResources, withIntermediateDirectories: true)
 let fixtureWubi = fixtureResources.appendingPathComponent("wubi.dict.yaml")
 try "---\n...\n甲\tabcd\t1\n乙\tefgh\t1\n".write(to: fixtureWubi, atomically: true, encoding: .utf8)
-try "---\n...\n甲乙\tjia yi\t100\n".write(to: fixtureResources.appendingPathComponent("rime_ice.dict.yaml"), atomically: true, encoding: .utf8)
+try "---\n...\n甲乙\tjia yi\t100\n".write(to: fixtureResources.appendingPathComponent("pinyin_simp.dict.yaml"), atomically: true, encoding: .utf8)
 let fixtureStore = DictionaryStore(resourceDirectory: fixtureResources, dataDirectory: fixtureData,
                                    builderURL: URL(fileURLWithPath: CommandLine.arguments[1]), log: { _ in })
 precondition(fixtureStore.wubi.lookup("abef") == ["甲乙"] && fixtureStore.issues.isEmpty)

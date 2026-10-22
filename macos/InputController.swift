@@ -73,11 +73,22 @@ class WubiInputController: IMKInputController {
         let currentClient: IMKTextInput? = client()
         if let currentClient { commitComposition(currentClient) }
         let success = DictionaryStore.shared.reload()
-        if let currentClient {
-            let message = !success ? "词库加载失败，保留旧词库" :
-                (DictionaryStore.shared.issues.isEmpty ? "词库已更新" : "词库已更新，部分文件有误")
-            showQuoteHint(message, client: currentClient)
+        let message = !success ? "词库加载失败，保留旧词库" :
+            (DictionaryStore.shared.issues.isEmpty ? "词库已更新" : "词库已更新，部分文件有误")
+        let notification = Process()
+        notification.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        // Pass text as arguments, independently of the focused input client.
+        notification.arguments = ["-e", """
+            on run argv
+                display notification (item 1 of argv) with title "小桃的五笔词库"
+            end run
+            """, message]
+        notification.standardOutput = FileHandle.nullDevice
+        notification.terminationHandler = { task in
+            if task.terminationStatus != 0 { NSLog("无法发送词库更新通知：退出码 %d", task.terminationStatus) }
         }
+        do { try notification.run() }
+        catch { NSLog("无法发送词库更新通知：%@", error.localizedDescription) }
     }
 
     @objc private func openDictionaryDirectory(_ sender: Any?) {

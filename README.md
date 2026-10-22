@@ -8,18 +8,16 @@
 
 ```bash
 ./get-dicts.sh
-./get-rime-ice-dict.sh
+./get-pinyin-dict.sh
 ./scripts/build-macos.sh
 ./scripts/install-macos.sh
 ```
 
 安装到 `~/Library/Input Methods/Wubi.app`。首次安装后注销并重新登录，在「系统设置 → 键盘 → 文本输入 → 编辑 → + → 简体中文」中添加「小桃的五笔」。不需要辅助功能权限。仅构建时，产物位于 `build/Wubi.app`；双击 app 不会代替输入源注册。
 
-词库沿用 [极点五笔 86 词库](https://github.com/KyleBing/rime-wubi86-jidian)，下载文件不提交到仓库。根目录下除 `pinyin_simp.dict.yaml`、`rime_ice.dict.yaml` 和旧生成表以外的 `*.dict.yaml` 作为五笔来源，至少需要主词库 `wubi86_jidian.dict.yaml`。支持两列或带权重的多列 Rime 码表，重复词条去重。内置扩展词库更新后需重新构建；个人词库使用下述运行时数据目录。使用和分发词库时请查看上游的许可说明。
+词库沿用 [极点五笔 86 词库](https://github.com/KyleBing/rime-wubi86-jidian)，下载文件不提交到仓库。根目录下除 `pinyin_simp.dict.yaml` 和旧生成表以外的 `*.dict.yaml` 作为五笔来源，至少需要主词库 `wubi86_jidian.dict.yaml`。支持两列或带权重的多列 Rime 码表，重复词条去重。内置扩展词库更新后需重新构建；个人词库使用下述运行时数据目录。使用和分发词库时请查看上游的许可说明。
 
-默认使用 [雾凇拼音词库](https://github.com/iDvel/rime-ice)，通过 `./get-rime-ice-dict.sh` 下载并合并 `8105` 字表、`base` 基础词库、`ext` 扩展词库及 `others` 杂项，生成 `rime_ice.dict.yaml`。保留上游注音、词频和来源注释；不导入需要 Rime 自动注音的 `tencent` 表。新增汉字词语自动参与五笔组词。雾凇仓库采用 GPL-3.0，许可随 app 打包。
-
-未下载雾凇时，拼音回退使用 [Rime 袖珍简化字拼音词库](https://github.com/rime/rime-pinyin-simp)，通过 `./get-pinyin-dict.sh` 下载。拼音与五笔独立查询，不会混用候选。拼音词库采用 Apache License 2.0，来源说明及许可随 app 打包在 `Resources/licenses`。
+拼音使用 [Rime 袖珍简化字拼音词库](https://github.com/rime/rime-pinyin-simp)，通过 `./get-pinyin-dict.sh` 下载。拼音与五笔独立查询，不会混用候选。拼音词库采用 Apache License 2.0，来源说明及许可随 app 打包在 `Resources/licenses`。
 
 构建时只打包原始词库。输入法启动或重新加载时，由随 app 打包的独立 Swift 辅助进程读取内置和用户词库，生成合并索引；主进程只读映射紧凑索引文件，构建完成后辅助进程退出；运行时不依赖 Python，不改写 app 包或原始码表。查询索引用紧凑 UTF-8 字节与偏移量保存，不再重复保留完整字符串词表；合并后释放词频和组词临时数据，前缀缓存最多保留 4,096 个候选。完整合并报告逐条写入磁盘，进程内只保留统计及各类前 30 条示例。构建辅助进程退出后，解析、组词和报告的临时分配全部由系统回收；重新加载失败时保留原索引。映射建立后删除临时文件，映射在使用期间继续有效。
 
@@ -37,7 +35,7 @@
 | `dictionary-merge-report.json` / `.md` | 本次合并的完整报告与摘要 |
 | `dictionary-load-issues.log` | 跳过的坏文件、设置错误和报告写入问题 |
 
-目录首次启动自动创建。可从输入法菜单选择「打开用户词库目录」。将 Rime 格式的 `*.dict.yaml` 放入对应目录后，点击「重新加载词库」即可生效，无需编译或重启。删除或修改用户词库后同样操作；坏文件会跳过，不影响有效的内置词库。若没有任何有效五笔词条，重载会失败并保留上次可用索引。
+目录首次启动自动创建。可从输入法菜单选择「打开用户词库目录」。将 Rime 格式的 `*.dict.yaml` 放入对应目录后，点击「重新加载词库」即可生效，无需编译或重启；加载成功、部分文件有误或加载失败均通过系统通知提示。删除或修改用户词库后同样操作；坏文件会跳过，不影响有效的内置词库。若没有任何有效五笔词条，重载会失败并保留上次可用索引。
 
 五笔用户词库示例（词语、编码、权重之间使用 Tab）：
 
@@ -130,7 +128,7 @@ name: user_wubi
 
 系统集成和显示效果仍需安装后在 TextEdit、浏览器等应用中手动验证；这些自动测试不覆盖 InputMethodKit 通信、候选窗位置、字体渲染和通知。
 
-使用已下载的雾凇词库验证内存（包含首次加载、大前缀查询和重新加载；独立测试进程，不切换系统输入法）：
+使用已下载的五笔和袖珍拼音词库验证内存（包含首次加载、大前缀查询和重新加载；独立测试进程，不切换系统输入法）：
 
 ```bash
 ./scripts/profile-memory.sh
