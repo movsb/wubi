@@ -89,25 +89,22 @@ final class DictionaryStore {
     @inline(never)
     private func reloadSnapshot() -> Bool {
         var problems: [String] = []
-        let userWubi = dataDirectory.appendingPathComponent("Dictionaries/Wubi", isDirectory: true)
-        let userPinyin = dataDirectory.appendingPathComponent("Dictionaries/Pinyin", isDirectory: true)
-        for directory in [userWubi, userPinyin] {
-            do { try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true) }
-            catch { problems.append("无法创建词库目录：\(error.localizedDescription)") }
-        }
-        func files(_ directory: URL) -> [URL] {
+        let userDictionary = dataDirectory.appendingPathComponent("Dictionaries", isDirectory: true)
+        do { try FileManager.default.createDirectory(at: userDictionary, withIntermediateDirectories: true) }
+        catch { problems.append("无法创建词库目录：\(error.localizedDescription)") }
+        func files(_ directory: URL, suffix: String = ".txt") -> [URL] {
             do {
                 return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-                    .filter { $0.lastPathComponent.hasSuffix(".dict.yaml") }
+                    .filter { $0.lastPathComponent.hasSuffix(suffix) }
                     .sorted { $0.lastPathComponent < $1.lastPathComponent }
             } catch {
                 problems.append("无法读取 \(directory.path)：\(error.localizedDescription)")
                 return []
             }
         }
-        func rows(_ urls: [URL]) -> [DictionaryRow] {
+        func rows(_ urls: [URL], userText: Bool = false) -> [DictionaryRow] {
             urls.flatMap { url -> [DictionaryRow] in
-                do { return try DictionaryRow.read(url) }
+                do { return try userText ? DictionaryRow.readUserText(url) : DictionaryRow.read(url) }
                 catch {
                     problems.append("跳过 \(url.path)：\(error.localizedDescription)")
                     return []
@@ -115,9 +112,9 @@ final class DictionaryStore {
             }
         }
         let bundled = files(resourceDirectory)
-        let wubiRows = rows(bundled.filter { !["pinyin_simp.dict.yaml", "wubi_merged.dict.yaml"].contains($0.lastPathComponent) })
-            + rows(files(userWubi))
-        let pinyinRows = rows(bundled.filter { $0.lastPathComponent == "pinyin_simp.dict.yaml" }) + rows(files(userPinyin))
+        let wubiRows = rows(bundled.filter { $0.lastPathComponent.hasPrefix("wubi") && $0.lastPathComponent != "wubi_merged.txt" })
+        let pinyinRows = rows(bundled.filter { $0.lastPathComponent == "pinyin_simp.txt" })
+            + rows(files(userDictionary, suffix: ".txt"), userText: true)
         var newPinyin = PinyinDictionary(rows: pinyinRows)
         struct Settings: Decodable { let mergePinyinIntoWubi: Bool? }
         let settingsURL = dataDirectory.appendingPathComponent("settings.json")

@@ -1,12 +1,9 @@
 import Foundation
 
 func runPinyinTests() throws {
-    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dict.yaml")
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".txt")
     defer { try? FileManager.default.removeItem(at: temporary) }
     try """
-    ---
-    name: test_pinyin
-    ...
     尼\tni\t10
     你\tni\t100
     你\tni\t100
@@ -99,7 +96,7 @@ func runPinyinTests() throws {
     session.modifiers(code: 60, leftDown: false)
     check(!session.engine.pinyinMode, "deactivation cancels pending right Shift tap")
 
-    let realPath = "pinyin_simp.dict.yaml"
+    let realPath = "pinyin_simp.txt"
     if FileManager.default.fileExists(atPath: realPath) {
         let real = try PinyinDictionary(url: URL(fileURLWithPath: realPath))
         check(real.count > 60000, "full upstream Pinyin dictionary loads")

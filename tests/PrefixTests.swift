@@ -179,8 +179,8 @@ func runPrefixTests() throws {
     check(current.output.hasSuffix("hello"), "unknown English still commits raw in Pinyin mode")
 
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let wubiURL = root.appendingPathComponent("wubi86_jidian.dict.yaml")
-    let pinyinURL = root.appendingPathComponent("pinyin_simp.dict.yaml")
+    let wubiURL = root.appendingPathComponent("wubi86_jidian.txt")
+    let pinyinURL = root.appendingPathComponent("pinyin_simp.txt")
     if FileManager.default.fileExists(atPath: wubiURL.path), FileManager.default.fileExists(atPath: pinyinURL.path) {
         let realPinyin = try PinyinDictionary(url: pinyinURL)
         let real = DictionaryMerger.merge(wubiRows: try DictionaryRow.read(wubiURL), pinyin: realPinyin).dictionary

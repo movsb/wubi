@@ -1,2 +1,6 @@
 *.dict.yaml
 /build/
+/wubi*.txt
+/pinyin_simp.txt
+/*.txt.download
+/*.txt.tmp

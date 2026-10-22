@@ -2,21 +2,22 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 shopt -s nullglob
-dicts=(*.dict.yaml)
+dicts=(wubi*.txt)
 if [ ${#dicts[@]} -eq 0 ]; then
   echo '没有词库，请先运行 ./get-dicts.sh' >&2
   exit 1
 fi
-if [ ! -f pinyin_simp.dict.yaml ]; then
+if [ ! -f pinyin_simp.txt ]; then
   echo '没有拼音词库，请先运行 ./get-pinyin-dict.sh' >&2
   exit 1
 fi
+dicts+=(pinyin_simp.txt)
 app="$PWD/build/Wubi.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" build/module-cache
 ./scripts/test.sh
 cp macos/Info.plist "$app/Contents/Info.plist"
 printf '%s\n' "$PWD" > "$app/Contents/Resources/DevelopmentSourcePath.txt"
-rm -f "$app/Contents/Resources/"*.dict.yaml
+rm -f "$app/Contents/Resources/"*.dict.yaml "$app/Contents/Resources/"wubi*.txt "$app/Contents/Resources/pinyin_simp.txt"
 cp "${dicts[@]}" "$app/Contents/Resources/"
 rm -rf "$app/Contents/Resources/licenses"
 ditto licenses "$app/Contents/Resources/licenses"

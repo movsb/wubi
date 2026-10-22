@@ -5,12 +5,9 @@ func check(_ condition: @autoclosure () -> Bool, _ message: String) {
     checks += 1
     if !condition() { fatalError(message) }
 }
-let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dict.yaml")
+let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".txt")
 defer { try? FileManager.default.removeItem(at: temporary) }
 try """
----
-name: test
-...
 金\tq\t10
 我\tq\t20
 我\tq\t20
@@ -24,8 +21,8 @@ check(fixture.lookup("Q") == ["我", "金"], "uppercase lookup")
 check(fixture.lookup("bad!").isEmpty, "invalid code")
 check(fixture.lookup("zzzz") == ["表情"], "additional columns")
 check(fixture.lookup("missing").isEmpty, "missing code")
-if FileManager.default.fileExists(atPath: "wubi86_jidian.dict.yaml") {
-    let real = try WubiDictionary(urls: [URL(fileURLWithPath: "wubi86_jidian.dict.yaml")])
+if FileManager.default.fileExists(atPath: "wubi86_jidian.txt") {
+    let real = try WubiDictionary(urls: [URL(fileURLWithPath: "wubi86_jidian.txt")])
     check(real.count > 50000, "full dictionary loaded")
     check(real.lookup("q").first == "我", "first candidate")
     check(real.lookup("imde").contains("没有"), "four-letter phrase")

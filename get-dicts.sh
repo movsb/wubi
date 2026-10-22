@@ -7,6 +7,10 @@ DICTS=(wubi86_jidian.dict.yaml wubi86_jidian_addition.dict.yaml wubi86_jidian_ex
 
 cd "$(dirname "$0")"
 for dict in "${DICTS[@]}"; do
-	curl --fail --location --retry 2 "$PREFIX/$dict" -o "$dict.tmp"
-	mv "$dict.tmp" "$dict"
+	target="${dict%.dict.yaml}.txt"
+	trap 'rm -f "$target.download" "$target.tmp"' EXIT
+	curl --fail --location --retry 2 "$PREFIX/$dict" -o "$target.download"
+	awk -f scripts/rime-to-text.awk "$target.download" > "$target.tmp"
+	mv "$target.tmp" "$target"
+	rm "$target.download"
 done
