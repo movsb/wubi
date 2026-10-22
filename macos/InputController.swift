@@ -136,7 +136,7 @@ class WubiInputController: IMKInputController {
     }
 
     @objc private func openDictionaryDirectory(_ sender: Any?) {
-        NSWorkspace.shared.open(DictionaryStore.shared.dataDirectory.appendingPathComponent("Dictionaries"))
+        NSWorkspace.shared.open(DictionaryStore.shared.dataDirectory)
     }
 
     @objc private func rebuildAndReload(_ sender: Any?) {

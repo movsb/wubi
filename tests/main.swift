@@ -55,7 +55,7 @@ try runDictionaryStoreTests()
 try runProcessLifecycleTests()
 try runPrefixTests()
 
-let usageURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("usage.json")
+let usageURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("frequencies.txt")
 defer { try? FileManager.default.removeItem(at: usageURL.deletingLastPathComponent()) }
 let usage = WordUsageStore(url: usageURL, saveDelay: 0.3)
 var learning = InputEngine(lookup: { _ in ["甲", "乙", "丙"] },
@@ -121,6 +121,8 @@ _ = shortPrefixes.handle(InputKey(text: "e"))
 check(shortPrefixes.candidates == prefixValues, "short Wubi preserves both exact and completion ordering")
 try Data("invalid".utf8).write(to: usageURL)
 check(WordUsageStore(url: usageURL).counts.isEmpty, "invalid usage file falls back to dictionary order")
+try "甲\t3\n乙\t0\n丙\tbad\n甲\t2\n坏\t1\textra\n".write(to: usageURL, atomically: true, encoding: .utf8)
+check(WordUsageStore(url: usageURL).counts == ["甲": 3], "text frequencies skip invalid rows and keep highest duplicate count")
 print("PASS: personal word usage checks")
 print("PASS: \(checks) assertions")
 

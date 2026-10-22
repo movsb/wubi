@@ -4,7 +4,7 @@ import Foundation
 final class WordUsageStore {
     static let shared = WordUsageStore(url: FileManager.default.urls(
         for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Wubi/word-usage.json"))
+        .appendingPathComponent("Wubi/frequencies.txt"))
     private let url: URL
     private let saveDelay: TimeInterval
     private var saveTimer: Timer?
@@ -14,8 +14,18 @@ final class WordUsageStore {
     init(url: URL, saveDelay: TimeInterval = 10 * 60) {
         self.saveDelay = saveDelay
         self.url = url
-        counts = (try? JSONDecoder().decode([String: Int].self, from: Data(contentsOf: url))) ?? [:]
-        counts = counts.filter { $0.value > 0 }
+        counts = [:]
+        if FileManager.default.fileExists(atPath: url.path) {
+            if let text = try? String(contentsOf: url, encoding: .utf8) {
+                for line in text.split(whereSeparator: \.isNewline) {
+                    let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                    guard fields.count == 2, !fields[0].isEmpty,
+                          let count = Int(fields[1]), count > 0 else { continue }
+                    let word = String(fields[0])
+                    counts[word] = max(counts[word] ?? 0, count)
+                }
+            }
+        }
     }
 
     func record(_ word: String) {
@@ -37,12 +47,22 @@ final class WordUsageStore {
         let destination = url
         saveQueue.async {
             do {
-                try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try JSONEncoder().encode(snapshot).write(to: destination, options: .atomic)
+                try Self.write(snapshot, to: destination)
             } catch {
                 NSLog("保存个人词频失败：%@", error.localizedDescription)
             }
         }
+    }
+
+    private static func validWord(_ word: String) -> Bool {
+        !word.isEmpty && word.rangeOfCharacter(from: .newlines.union(CharacterSet(charactersIn: "\t"))) == nil
+    }
+
+    private static func write(_ counts: [String: Int], to url: URL) throws {
+        let text = counts.keys.sorted().filter { validWord($0) && counts[$0]! > 0 }
+            .map { $0 + "\t" + String(counts[$0]!) + "\n" }.joined()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: url, atomically: true, encoding: .utf8)
     }
 
     func rank(_ candidates: [InputCandidate]) -> [InputCandidate] {

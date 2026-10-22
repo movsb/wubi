@@ -45,7 +45,7 @@ try "甲乙\tjia yi\t100\n".write(to: fixtureResources.appendingPathComponent("p
 let fixtureStore = DictionaryStore(resourceDirectory: fixtureResources, dataDirectory: fixtureData,
                                    builderURL: URL(fileURLWithPath: CommandLine.arguments[1]), log: { _ in })
 precondition(fixtureStore.wubi.lookup("abef") == ["甲乙"] && fixtureStore.issues.isEmpty)
-try "# 用户词库\n甲乙乙\tjia yi yi\n".write(to: fixtureData.appendingPathComponent("Dictionaries/user.txt"), atomically: true, encoding: .utf8)
+try "# 用户词库\n甲乙乙\tjia yi yi\n".write(to: fixtureData.appendingPathComponent("manual.txt"), atomically: true, encoding: .utf8)
 precondition(fixtureStore.reload() && fixtureStore.wubi.lookup("aeef") == ["甲乙乙"])
 try FileManager.default.removeItem(at: fixtureWubi)
 precondition(!fixtureStore.reload() && fixtureStore.wubi.lookup("aeef") == ["甲乙乙"])

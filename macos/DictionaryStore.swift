@@ -89,13 +89,12 @@ final class DictionaryStore {
     @inline(never)
     private func reloadSnapshot() -> Bool {
         var problems: [String] = []
-        let userDictionary = dataDirectory.appendingPathComponent("Dictionaries", isDirectory: true)
-        do { try FileManager.default.createDirectory(at: userDictionary, withIntermediateDirectories: true) }
+        do { try FileManager.default.createDirectory(at: dataDirectory, withIntermediateDirectories: true) }
         catch { problems.append("无法创建词库目录：\(error.localizedDescription)") }
-        func files(_ directory: URL, suffix: String = ".txt") -> [URL] {
+        func files(_ directory: URL) -> [URL] {
             do {
                 return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
-                    .filter { $0.lastPathComponent.hasSuffix(suffix) }
+                    .filter { $0.lastPathComponent.hasSuffix(".txt") }
                     .sorted { $0.lastPathComponent < $1.lastPathComponent }
             } catch {
                 problems.append("无法读取 \(directory.path)：\(error.localizedDescription)")
@@ -114,7 +113,6 @@ final class DictionaryStore {
         let bundled = files(resourceDirectory)
         let wubiRows = rows(bundled.filter { $0.lastPathComponent.hasPrefix("wubi") && $0.lastPathComponent != "wubi_merged.txt" })
         let pinyinRows = rows(bundled.filter { $0.lastPathComponent == "pinyin_simp.txt" })
-            + rows(files(userDictionary, suffix: ".txt"), userText: true)
             + rows(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent("manual.txt").path)
                    ? [dataDirectory.appendingPathComponent("manual.txt")] : [], userText: true)
         var newPinyin = PinyinDictionary(rows: pinyinRows)
@@ -138,18 +136,20 @@ final class DictionaryStore {
         pinyin = newPinyin
         report = merged?.report.summary()
         mergeEnabled = enabled
+        let temporaryDirectory = dataDirectory.appendingPathComponent("tmp", isDirectory: true)
         do {
-            if let fullReport = merged?.report { try fullReport.write(to: dataDirectory) }
+            try FileManager.default.createDirectory(at: temporaryDirectory, withIntermediateDirectories: true)
+            if let fullReport = merged?.report { try fullReport.write(to: temporaryDirectory) }
             else {
                 for file in ["dictionary-merge-report.json", "dictionary-merge-report.md"] {
-                    let url = dataDirectory.appendingPathComponent(file)
+                    let url = temporaryDirectory.appendingPathComponent(file)
                     if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
                 }
             }
         } catch { problems.append("无法写入合并报告：\(error.localizedDescription)") }
         issues = problems
         do {
-            try issues.joined(separator: "\n").write(to: dataDirectory.appendingPathComponent("dictionary-load-issues.log"), atomically: true, encoding: .utf8)
+            try issues.joined(separator: "\n").write(to: temporaryDirectory.appendingPathComponent("dictionary-load-issues.log"), atomically: true, encoding: .utf8)
         } catch { log("Wubi dictionary log error: " + error.localizedDescription) }
         log("Wubi dictionaries: \(wubi.count) entries, Pinyin: \(pinyin.count), added: \(report?.addedPhrases ?? 0)")
         if !issues.isEmpty { log("Wubi dictionaries: " + issues.joined(separator: "\n")) }
