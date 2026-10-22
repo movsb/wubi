@@ -10,6 +10,7 @@ fi
 app="$PWD/build/Wubi.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" build/module-cache
 cp macos/Info.plist "$app/Contents/Info.plist"
+printf '%s\n' "$PWD" > "$app/Contents/Resources/DevelopmentSourcePath.txt"
 rm -f "$app/Contents/Resources/"*.dict.yaml
 cp "${dicts[@]}" "$app/Contents/Resources/"
 xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \

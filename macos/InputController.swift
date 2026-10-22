@@ -14,6 +14,63 @@ class WubiInputController: IMKInputController {
     private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
     private let missingRange = NSRange(location: NSNotFound, length: 0)
+    private static var reloadProcess: Process?
+
+    private var reloadScript: URL? {
+        guard let location = Bundle.main.url(forResource: "DevelopmentSourcePath", withExtension: "txt"),
+              let path = try? String(contentsOf: location, encoding: .utf8) else { return nil }
+        let script = URL(fileURLWithPath: path.trimmingCharacters(in: .newlines))
+            .appendingPathComponent("scripts/reload-macos.sh")
+        return FileManager.default.isExecutableFile(atPath: script.path) ? script : nil
+    }
+
+    override func menu() -> NSMenu! {
+        let menu = NSMenu(title: "五笔")
+        menu.autoenablesItems = false
+        let item = NSMenuItem(title: "重新构建并加载输入法", action: #selector(rebuildAndReload(_:)), keyEquivalent: "")
+        item.target = self
+        item.isEnabled = reloadScript != nil && Self.reloadProcess == nil
+        item.toolTip = "从本机源码构建并重启五笔，无需注销"
+        menu.addItem(item)
+        return menu
+    }
+
+    @objc private func rebuildAndReload(_ sender: Any?) {
+        guard Self.reloadProcess == nil, let script = reloadScript else { return }
+        do {
+            let logs = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Wubi", isDirectory: true)
+            try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+            let log = logs.appendingPathComponent("reload.log")
+            FileManager.default.createFile(atPath: log.path, contents: nil)
+            let output = try FileHandle(forWritingTo: log)
+            let process = Process()
+            // The external updater must survive termination of this input-method process.
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
+            process.arguments = ["/bin/bash", script.path, "--notify-success"]
+            process.standardInput = FileHandle.nullDevice
+            process.standardOutput = output
+            process.standardError = output
+            process.terminationHandler = { task in
+                DispatchQueue.main.async {
+                    Self.reloadProcess = nil
+                    if task.terminationStatus != 0 {
+                        let alert = NSAlert()
+                        alert.messageText = "输入法更新失败"
+                        alert.informativeText = "请查看日志：\(log.path)"
+                        alert.runModal()
+                    }
+                }
+            }
+            try process.run()
+            Self.reloadProcess = process
+            try? output.close()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法启动输入法更新"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         guard let event, let client = sender as? IMKTextInput, event.type == .keyDown else { return false }
