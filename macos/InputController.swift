@@ -26,8 +26,7 @@ class WubiInputController: IMKInputController {
             if code.count == 4 { commitComposition(sender) }
             code += text
             page = 0
-            if code.count == 4 && choices.count == 1 { commitComposition(sender) }
-            else { refresh(client) }
+            refresh(client)
             return true
         }
         guard !code.isEmpty else { return false }
