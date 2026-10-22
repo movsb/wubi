@@ -10,8 +10,9 @@ import (
 
 // Trie is a trie retrieval tree.
 type Trie struct {
-	words map[string]struct{}
-	nodes [26]*Trie
+	words   map[string]struct{}
+	ordered []string
+	nodes   [26]*Trie
 }
 
 func (t *Trie) Insert(word string, codes string) {
@@ -32,7 +33,10 @@ func (t *Trie) Insert(word string, codes string) {
 	if tt.words == nil {
 		tt.words = make(map[string]struct{})
 	}
-	tt.words[word] = struct{}{}
+	if _, exists := tt.words[word]; !exists {
+		tt.words[word] = struct{}{}
+		tt.ordered = append(tt.ordered, word)
+	}
 }
 
 func (t *Trie) Search(code string) []string {
@@ -47,11 +51,7 @@ func (t *Trie) Search(code string) []string {
 			return nil
 		}
 	}
-	words := make([]string, 0, len(tt.words))
-	for k := range tt.words {
-		words = append(words, k)
-	}
-	return words
+	return append([]string(nil), tt.ordered...)
 }
 
 func readCodes(file string, callback func(word string, codes string)) {
@@ -74,10 +74,17 @@ func readCodes(file string, callback func(word string, codes string)) {
 			continue
 		}
 		tokens := strings.Split(line, "\t")
-		if len(tokens) != 2 {
-			panic("bad code")
+		if len(tokens) < 2 {
+			continue
 		}
-		callback(tokens[0], tokens[1])
+		code := strings.ToLower(tokens[1])
+		if len(code) < 1 || len(code) > 4 || strings.IndexFunc(code, func(c rune) bool { return c < 'a' || c > 'z' }) >= 0 {
+			continue
+		}
+		callback(tokens[0], code)
+	}
+	if err := scanner.Err(); err != nil {
+		panic(err)
 	}
 }
 

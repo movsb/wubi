@@ -1,0 +1,30 @@
+import Foundation
+
+func check(_ condition: @autoclosure () -> Bool, _ message: String) {
+    if !condition() { fatalError(message) }
+}
+let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dict.yaml")
+defer { try? FileManager.default.removeItem(at: temporary) }
+try """
+---
+name: test
+...
+金\tq\t10
+我\tq\t20
+我\tq\t20
+没有\timde\t10
+错误\tbad!\t100
+表情\tzzzz\t5\tstem
+""".write(to: temporary, atomically: true, encoding: .utf8)
+let fixture = try WubiDictionary(urls: [temporary])
+check(fixture.lookup("q") == ["我", "金"], "weight ordering and deduplication")
+check(fixture.lookup("Q") == ["我", "金"], "uppercase lookup")
+check(fixture.lookup("bad!").isEmpty, "invalid code")
+check(fixture.lookup("zzzz") == ["表情"], "additional columns")
+check(fixture.lookup("missing").isEmpty, "missing code")
+let real = try WubiDictionary(urls: [URL(fileURLWithPath: "wubi86_jidian.dict.yaml")])
+check(real.count > 50000, "full dictionary loaded")
+check(real.lookup("q").first == "我", "first candidate")
+check(real.lookup("imde").contains("没有"), "four-letter phrase")
+check(real.lookup("qytr").contains("勿忘我"), "original example")
+print("PASS: dictionary checks; loaded \(real.count) entries")
