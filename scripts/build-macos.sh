@@ -7,8 +7,8 @@ if [ ${#dicts[@]} -eq 0 ]; then
   echo '没有词库，请先运行 ./get-dicts.sh' >&2
   exit 1
 fi
-if [ ! -f pinyin_simp.dict.yaml ]; then
-  echo '没有拼音词库，请先运行 ./get-pinyin-dict.sh' >&2
+if [ ! -f rime_ice.dict.yaml ] && [ ! -f pinyin_simp.dict.yaml ]; then
+  echo '没有拼音词库，请先运行 ./get-rime-ice-dict.sh' >&2
   exit 1
 fi
 app="$PWD/build/Wubi.app"

@@ -8,16 +8,18 @@
 
 ```bash
 ./get-dicts.sh
-./get-pinyin-dict.sh
+./get-rime-ice-dict.sh
 ./scripts/build-macos.sh
 ./scripts/install-macos.sh
 ```
 
 安装到 `~/Library/Input Methods/Wubi.app`。首次安装后注销并重新登录，在「系统设置 → 键盘 → 文本输入 → 编辑 → + → 简体中文」中添加「小桃的五笔」。不需要辅助功能权限。仅构建时，产物位于 `build/Wubi.app`；双击 app 不会代替输入源注册。
 
-词库沿用 [极点五笔 86 词库](https://github.com/KyleBing/rime-wubi86-jidian)，下载文件不提交到仓库。根目录下除拼音表以外的 `*.dict.yaml` 作为五笔来源，至少需要主词库 `wubi86_jidian.dict.yaml`。支持两列或带权重的多列 Rime 码表，重复词条去重。内置扩展词库更新后需重新构建；个人词库使用下述运行时数据目录。使用和分发词库时请查看上游的许可说明。
+词库沿用 [极点五笔 86 词库](https://github.com/KyleBing/rime-wubi86-jidian)，下载文件不提交到仓库。根目录下除 `pinyin_simp.dict.yaml`、`rime_ice.dict.yaml` 和旧生成表以外的 `*.dict.yaml` 作为五笔来源，至少需要主词库 `wubi86_jidian.dict.yaml`。支持两列或带权重的多列 Rime 码表，重复词条去重。内置扩展词库更新后需重新构建；个人词库使用下述运行时数据目录。使用和分发词库时请查看上游的许可说明。
 
-拼音使用 [Rime 袖珍简化字拼音词库](https://github.com/rime/rime-pinyin-simp)，通过 `./get-pinyin-dict.sh` 下载。拼音与五笔独立查询，不会混用候选。拼音词库采用 Apache License 2.0，来源说明及许可随 app 打包在 `Resources/licenses`。
+默认使用 [雾凇拼音词库](https://github.com/iDvel/rime-ice)，通过 `./get-rime-ice-dict.sh` 下载并合并 `8105` 字表、`base` 基础词库、`ext` 扩展词库及 `others` 杂项，生成 `rime_ice.dict.yaml`。保留上游注音、词频和来源注释；不导入需要 Rime 自动注音的 `tencent` 表。新增汉字词语自动参与五笔组词。雾凇仓库采用 GPL-3.0，许可随 app 打包。
+
+未下载雾凇时，拼音回退使用 [Rime 袖珍简化字拼音词库](https://github.com/rime/rime-pinyin-simp)，通过 `./get-pinyin-dict.sh` 下载。拼音与五笔独立查询，不会混用候选。拼音词库采用 Apache License 2.0，来源说明及许可随 app 打包在 `Resources/licenses`。
 
 构建时只打包原始词库。输入法启动时由 Swift 读取内置和用户词库，在内存中生成合并索引；运行时不依赖 Python，不改写 app 包或原始码表。
 

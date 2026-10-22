@@ -99,8 +99,9 @@ func runPinyinTests() throws {
     session.modifiers(code: 60, leftDown: false)
     check(!session.engine.pinyinMode, "deactivation cancels pending right Shift tap")
 
-    if FileManager.default.fileExists(atPath: "pinyin_simp.dict.yaml") {
-        let real = try PinyinDictionary(url: URL(fileURLWithPath: "pinyin_simp.dict.yaml"))
+    let realPath = FileManager.default.fileExists(atPath: "rime_ice.dict.yaml") ? "rime_ice.dict.yaml" : "pinyin_simp.dict.yaml"
+    if FileManager.default.fileExists(atPath: realPath) {
+        let real = try PinyinDictionary(url: URL(fileURLWithPath: realPath))
         check(real.count > 60000, "full upstream Pinyin dictionary loads")
         check(real.lookup("nihao").contains("你好"), "upstream nihao")
         check(real.lookup("zhongguo").contains("中国"), "upstream zhongguo")
