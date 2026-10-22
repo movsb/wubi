@@ -1,16 +1,16 @@
 import Foundation
 
-private struct Session {
+struct Session {
     var engine: InputEngine
     var output = ""
     var marked = ""
     var hints: [String] = []
     var modeHints: [String] = []
 
-    init() {
+    init(pinyinLookup: @escaping (String) -> [String] = { _ in [] }) {
         let words = ["q": ["我", "金"], "imde": ["没有"],
                      "a": (1...12).map { "候选\($0)" }]
-        engine = InputEngine { words[$0] ?? [] }
+        engine = InputEngine(lookup: { words[$0] ?? [] }, pinyinLookup: pinyinLookup)
     }
 
     @discardableResult
@@ -48,15 +48,20 @@ private struct Session {
         apply(effects)
     }
 
-    mutating func modifiers(code: UInt16 = 56, leftDown: Bool, shortcut: Bool = false, other: Bool = false) {
+    mutating func modifiers(code: UInt16 = 56, leftDown: Bool, rightDown: Bool = false, shortcut: Bool = false, other: Bool = false) {
         let result = engine.handle(InputKey(code: code, shortcut: shortcut,
-            isModifierChange: true, leftShiftDown: leftDown, otherModifier: other))
+            isModifierChange: true, leftShiftDown: leftDown, rightShiftDown: rightDown, otherModifier: other))
         apply(result.effects)
     }
 
     mutating func tapLeftShift() {
         modifiers(leftDown: true)
         modifiers(leftDown: false)
+    }
+
+    mutating func tapRightShift() {
+        modifiers(code: 60, leftDown: false, rightDown: true)
+        modifiers(code: 60, leftDown: false)
     }
 }
 
@@ -329,9 +334,10 @@ func runInputEngineTests() {
     session.key("?")
     session.modifiers(leftDown: false)
     check(!session.engine.englishMode && session.output == "？", "Shift-symbol chord does not toggle mode")
-    session.modifiers(code: 60, leftDown: false, other: true)
-    session.modifiers(code: 60, leftDown: false)
-    check(!session.engine.englishMode, "right Shift does not toggle mode")
+    session.tapRightShift()
+    check(session.engine.pinyinMode && !session.engine.englishMode, "right Shift switches Pinyin without enabling English")
+    session.tapRightShift()
+    check(!session.engine.pinyinMode, "second right Shift restores Wubi")
     session.modifiers(leftDown: true, shortcut: true)
     session.modifiers(leftDown: false, shortcut: true)
     check(!session.engine.englishMode, "Command-Control-Option with Shift does not toggle")

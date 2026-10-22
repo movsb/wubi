@@ -53,4 +53,5 @@ check(punctuation.convert("1") == nil && punctuation.convert("a") == nil, "non-p
 print("PASS: punctuation and quote state checks")
 runInputEngineTests()
 runKeyEventTests()
+try runPinyinTests()
 print("PASS: \(checks) assertions")

@@ -6,6 +6,7 @@ struct InputKey {
     var shortcut = false
     var isModifierChange = false
     var leftShiftDown = false
+    var rightShiftDown = false
     var otherModifier = false
 }
 
@@ -25,15 +26,26 @@ struct InputEngine {
     private(set) var code = ""
     private(set) var selectedIndex = 0
     private(set) var englishMode = false
+    private(set) var pinyinMode = false
     private var leftShiftPressed = false
+    private var rightShiftPressed = false
+    private var rightShiftTapPending = false
     private var shiftTapPending = false
     var page: Int { selectedIndex / 9 }
     private var punctuation = ChinesePunctuation()
     private let lookup: (String) -> [String]
+    private let pinyinLookup: (String) -> [String]
 
-    init(lookup: @escaping (String) -> [String]) { self.lookup = lookup }
+    init(lookup: @escaping (String) -> [String], pinyinLookup: @escaping (String) -> [String] = { _ in [] }) {
+        self.lookup = lookup
+        self.pinyinLookup = pinyinLookup
+    }
 
     var choices: [String] {
+        if pinyinMode {
+            guard code.utf8.allSatisfy({ (97...122).contains($0) || $0 == 39 }) else { return [] }
+            return pinyinLookup(code)
+        }
         guard code.utf8.allSatisfy({ (97...122).contains($0) }) else { return [] }
         return lookup(code)
     }
@@ -41,12 +53,18 @@ struct InputEngine {
     mutating func handle(_ key: InputKey) -> InputResult {
         if key.isModifierChange { return handleModifiers(key) }
         shiftTapPending = false
+        rightShiftTapPending = false
         // Let the client handle text and editing keys directly in English mode.
         if englishMode { return InputResult(handled: false) }
         if key.shortcut { return InputResult(handled: false, effects: commit()) }
         let text = key.text
         if text.utf8.count == 1, let byte = text.utf8.first,
            (97...122).contains(byte) || (65...90).contains(byte), !key.capsLock {
+            code += text
+            selectedIndex = 0
+            return refresh()
+        }
+        if pinyinMode, !code.isEmpty, text == "'", !key.capsLock {
             code += text
             selectedIndex = 0
             return refresh()
@@ -107,11 +125,35 @@ struct InputEngine {
         let effects = commit()
         punctuation.reset()
         leftShiftPressed = false
+        rightShiftPressed = false
         shiftTapPending = false
+        rightShiftTapPending = false
         return effects
     }
 
     private mutating func handleModifiers(_ key: InputKey) -> InputResult {
+        if key.code == 60 {
+            shiftTapPending = false
+            let wasPressed = rightShiftPressed
+            rightShiftPressed = key.rightShiftDown
+            if key.rightShiftDown && !wasPressed {
+                rightShiftTapPending = !key.shortcut && !key.otherModifier && !key.leftShiftDown
+            } else if !key.rightShiftDown && wasPressed {
+                let shouldToggle = rightShiftTapPending && !key.shortcut && !key.otherModifier && !key.leftShiftDown
+                rightShiftTapPending = false
+                if shouldToggle {
+                    var effects: [InputEffect] = []
+                    if !code.isEmpty { effects.append(insert(code)) }
+                    pinyinMode = englishMode || !pinyinMode
+                    englishMode = false
+                    punctuation.reset()
+                    effects.append(.modeHint(pinyinMode ? "拼" : "中"))
+                    return InputResult(handled: true, effects: effects)
+                }
+            }
+            return InputResult(handled: false)
+        }
+        rightShiftTapPending = false
         guard key.code == 56 else {
             shiftTapPending = false
             return InputResult(handled: false)
@@ -119,9 +161,9 @@ struct InputEngine {
         let wasPressed = leftShiftPressed
         leftShiftPressed = key.leftShiftDown
         if key.leftShiftDown && !wasPressed {
-            shiftTapPending = !key.shortcut && !key.otherModifier
+            shiftTapPending = !key.shortcut && !key.otherModifier && !key.rightShiftDown
         } else if !key.leftShiftDown && wasPressed {
-            let shouldToggle = shiftTapPending && !key.shortcut && !key.otherModifier
+            let shouldToggle = shiftTapPending && !key.shortcut && !key.otherModifier && !key.rightShiftDown
             shiftTapPending = false
             if shouldToggle {
                 var effects: [InputEffect] = []
@@ -129,7 +171,7 @@ struct InputEngine {
                 if !code.isEmpty { effects.append(insert(code)) }
                 englishMode.toggle()
                 punctuation.reset()
-                effects.append(.modeHint(englishMode ? "英" : "中"))
+                effects.append(.modeHint(englishMode ? "英" : (pinyinMode ? "拼" : "中")))
                 return InputResult(handled: true, effects: effects)
             }
         }

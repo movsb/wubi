@@ -16,6 +16,8 @@ extension InputKey {
             isModifierChange: event.type == .flagsChanged,
             leftShiftDown: hasSideFlags ? flags.rawValue & leftMask != 0
                 : event.keyCode == 56 && flags.contains(.shift),
-            otherModifier: flags.rawValue & rightMask != 0 || flags.contains(.function))
+            rightShiftDown: hasSideFlags ? flags.rawValue & rightMask != 0
+                : event.keyCode == 60 && flags.contains(.shift),
+            otherModifier: flags.contains(.function))
     }
 }

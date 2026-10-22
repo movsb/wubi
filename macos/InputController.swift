@@ -33,10 +33,18 @@ private final class CandidateBackgroundView: NSView {
 class WubiInputController: IMKInputController {
     private static let dictionary: WubiDictionary = {
         let urls = (try? FileManager.default.contentsOfDirectory(at: Bundle.main.resourceURL!, includingPropertiesForKeys: nil)) ?? []
-        do { return try WubiDictionary(urls: urls.filter { $0.lastPathComponent.hasSuffix(".dict.yaml") }) }
+        do { return try WubiDictionary(urls: urls.filter {
+            $0.lastPathComponent.hasSuffix(".dict.yaml") && $0.lastPathComponent != "pinyin_simp.dict.yaml"
+        }) }
         catch { NSLog("Wubi dictionary error: %@", String(describing: error)); return try! WubiDictionary(urls: []) }
     }()
-    private lazy var engine = InputEngine(lookup: Self.dictionary.lookup)
+    private static let pinyinDictionary: PinyinDictionary? = {
+        guard let url = Bundle.main.url(forResource: "pinyin_simp.dict", withExtension: "yaml") else { return nil }
+        do { return try PinyinDictionary(url: url) }
+        catch { NSLog("Pinyin dictionary error: %@", String(describing: error)); return nil }
+    }()
+    private lazy var engine = InputEngine(lookup: Self.dictionary.lookup,
+        pinyinLookup: { Self.pinyinDictionary?.lookup($0) ?? [] })
     private var code: String { engine.code }
     private var page: Int { engine.page }
     private var choices: [String] { engine.choices }
