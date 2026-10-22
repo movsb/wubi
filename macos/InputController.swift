@@ -35,7 +35,8 @@ class WubiInputController: IMKInputController {
         lookup: { DictionaryStore.shared.wubi.lookup($0) },
         pinyinLookup: { DictionaryStore.shared.pinyin.lookup($0) },
         wubiCandidates: { DictionaryStore.shared.wubi.candidates(prefix: $0) },
-        pinyinCandidates: { DictionaryStore.shared.pinyin.candidates(prefix: $0) })
+        pinyinCandidates: { DictionaryStore.shared.pinyin.candidates(prefix: $0) },
+        usage: WordUsageStore.shared)
     private var code: String { engine.code }
     private var page: Int { engine.page }
     private var panel: NSPanel?

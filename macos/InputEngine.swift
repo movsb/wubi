@@ -1,3 +1,62 @@
+import Foundation
+
+// Shared across input clients, modes and codes. Only confirmed dictionary words are learned.
+final class WordUsageStore {
+    static let shared = WordUsageStore(url: FileManager.default.urls(
+        for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Wubi/word-usage.json"))
+    private let url: URL
+    private let saveDelay: TimeInterval
+    private var saveTimer: Timer?
+    private let saveQueue = DispatchQueue(label: "Wubi.word-usage-save", qos: .utility)
+    private(set) var counts: [String: Int]
+
+    init(url: URL, saveDelay: TimeInterval = 10 * 60) {
+        self.saveDelay = saveDelay
+        self.url = url
+        counts = (try? JSONDecoder().decode([String: Int].self, from: Data(contentsOf: url))) ?? [:]
+        counts = counts.filter { $0.value > 0 }
+    }
+
+    func record(_ word: String) {
+        let count = counts[word] ?? 0
+        counts[word] = count == Int.max ? count : count + 1
+        saveTimer?.invalidate()
+        let timer = Timer(timeInterval: saveDelay, repeats: false) { [weak self] _ in
+            self?.saveAfterIdle()
+        }
+        saveTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    deinit { saveTimer?.invalidate() }
+
+    private func saveAfterIdle() {
+        saveTimer = nil
+        let snapshot = counts
+        let destination = url
+        saveQueue.async {
+            do {
+                try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try JSONEncoder().encode(snapshot).write(to: destination, options: .atomic)
+            } catch {
+                NSLog("保存个人词频失败：%@", error.localizedDescription)
+            }
+        }
+    }
+
+    func rank(_ candidates: [InputCandidate]) -> [InputCandidate] {
+        candidates.enumerated().sorted {
+            let leftExact = $0.element.remainingCode.isEmpty
+            let rightExact = $1.element.remainingCode.isEmpty
+            if leftExact != rightExact { return leftExact }
+            let left = counts[$0.element.text] ?? 0
+            let right = counts[$1.element.text] ?? 0
+            return left == right ? $0.offset < $1.offset : left > right
+        }.map(\.element)
+    }
+}
+
 // Input behavior lives here so regression tests exercise the same code as InputMethodKit.
 struct InputKey {
     var text: String = ""
@@ -34,6 +93,7 @@ struct InputEngine {
     private var shiftTapPending = false
     var page: Int { selectedIndex / Self.pageSize }
     private var punctuation = ChinesePunctuation()
+    private let usage: WordUsageStore?
     private let lookup: (String) -> [String]
     private let pinyinLookup: (String) -> [String]
     private let wubiCandidates: ((String) -> [InputCandidate])?
@@ -41,7 +101,9 @@ struct InputEngine {
 
     init(lookup: @escaping (String) -> [String], pinyinLookup: @escaping (String) -> [String] = { _ in [] },
          wubiCandidates: ((String) -> [InputCandidate])? = nil,
-         pinyinCandidates: ((String) -> [InputCandidate])? = nil) {
+         pinyinCandidates: ((String) -> [InputCandidate])? = nil,
+         usage: WordUsageStore? = nil) {
+        self.usage = usage
         self.lookup = lookup
         self.pinyinLookup = pinyinLookup
         self.wubiCandidates = wubiCandidates
@@ -54,10 +116,12 @@ struct InputEngine {
         guard !englishMode else { return [] }
         if pinyinMode {
             guard code.utf8.allSatisfy({ (97...122).contains($0) || $0 == 39 }) else { return [] }
-            return pinyinCandidates?(code) ?? pinyinLookup(code).map { InputCandidate(text: $0, remainingCode: "") }
+            let values = pinyinCandidates?(code) ?? pinyinLookup(code).map { InputCandidate(text: $0, remainingCode: "") }
+            return usage?.rank(values) ?? values
         }
         guard code.utf8.allSatisfy({ (97...122).contains($0) }) else { return [] }
-        return wubiCandidates?(code) ?? lookup(code).map { InputCandidate(text: $0, remainingCode: "") }
+        let values = wubiCandidates?(code) ?? lookup(code).map { InputCandidate(text: $0, remainingCode: "") }
+        return usage?.rank(values) ?? values
     }
 
     mutating func handle(_ key: InputKey) -> InputResult {
@@ -115,7 +179,7 @@ struct InputEngine {
             if let digit = Int(text), (1...9).contains(digit) {
                 let index = page * Self.pageSize + digit - 1
                 if digit <= Self.pageSize && choices.indices.contains(index) {
-                    return InputResult(handled: true, effects: [insert(choices[index])])
+                    return InputResult(handled: true, effects: [select(choices[index])])
                 }
                 return InputResult(handled: true)
             } else {
@@ -128,7 +192,8 @@ struct InputEngine {
     mutating func commit() -> [InputEffect] {
         guard !code.isEmpty else { return [] }
         let values = choices
-        return [insert(values.isEmpty ? code : values[min(selectedIndex, values.count - 1)])]
+        guard !values.isEmpty else { return [insert(code)] }
+        return [select(values[min(selectedIndex, values.count - 1)])]
     }
 
     mutating func deactivate() -> [InputEffect] {
@@ -194,6 +259,11 @@ struct InputEngine {
     }
 
     private func refresh() -> InputResult { InputResult(handled: true, effects: [.refresh]) }
+
+    private mutating func select(_ word: String) -> InputEffect {
+        usage?.record(word)
+        return insert(word)
+    }
 
     private mutating func insert(_ text: String) -> InputEffect {
         code = ""; selectedIndex = 0
