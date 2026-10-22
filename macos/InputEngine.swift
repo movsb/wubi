@@ -121,6 +121,8 @@ struct InputEngine {
         }
         guard code.utf8.allSatisfy({ (97...122).contains($0) }) else { return [] }
         let values = wubiCandidates?(code) ?? lookup(code).map { InputCandidate(text: $0, remainingCode: "") }
+        // Short Wubi codes are fixed muscle memory, even after learning in another mode.
+        guard code.count == 4 else { return values }
         return usage?.rank(values) ?? values
     }
 
