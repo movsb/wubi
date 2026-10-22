@@ -211,8 +211,11 @@ class WubiInputController: IMKInputController {
             let word = NSAttributedString(string: candidate.text, attributes: attributes)
             text.append(word)
             leftWidth = max(leftWidth, number.size().width + word.size().width)
-            if !candidate.remainingCode.isEmpty {
-                let remaining = NSAttributedString(string: candidate.remainingCode, attributes: numberAttributes)
+            let annotation = engine.pinyinMode
+                ? DictionaryStore.shared.wubi.reverseLookup(candidate.text) ?? ""
+                : candidate.remainingCode
+            if !annotation.isEmpty {
+                let remaining = NSAttributedString(string: annotation, attributes: numberAttributes)
                 text.append(NSAttributedString(string: "\t", attributes: numberAttributes))
                 text.append(remaining)
                 remainingWidth = max(remainingWidth, remaining.size().width)

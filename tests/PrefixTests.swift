@@ -1,6 +1,30 @@
 import Foundation
 
 func runPrefixTests() throws {
+    let reverse = WubiDictionary(rows: [
+        .init(word: "我", code: "q", weight: 100),
+        .init(word: "我", code: "trnt", weight: 10),
+        .init(word: "我", code: "zzzz", weight: 200),
+        .init(word: "没有", code: "imde", weight: 10),
+        .init(word: "𠮷", code: "fk", weight: 1),
+        .init(word: "好", code: "vbg", weight: 100),
+        .init(word: "好", code: "vb", weight: 1),
+    ])
+    check(reverse.reverseLookup("我") == "q", "reverse lookup prefers shortest normal code over full and z codes")
+    check(reverse.reverseLookup("好") == "vb", "reverse lookup prefers two-letter abbreviation regardless of weight")
+    check(reverse.reverseLookup("没有") == "imde", "reverse lookup supports phrases")
+    check(reverse.reverseLookup("𠮷") == "fk", "reverse lookup supports short-only and supplementary characters")
+    check(reverse.reverseLookup("未知词") == nil, "missing reverse lookup has no invented code")
+    let reverseURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer {
+        try? FileManager.default.removeItem(at: reverseURL)
+        try? FileManager.default.removeItem(at: reverseURL.appendingPathExtension("reverse"))
+    }
+    try reverse.writeIndex(to: reverseURL)
+    let mappedReverse = try WubiDictionary(indexURL: reverseURL, count: reverse.count)
+    check(mappedReverse.reverseLookup("我") == "q", "builder snapshot preserves shortest reverse lookup")
+    check(mappedReverse.reverseLookup("好") == "vb", "builder snapshot preserves two-letter abbreviation")
+    check(mappedReverse.lookup("q") == ["我"], "reverse index does not alter forward lookup")
     // Differential check against a String-based reference, including large uncached results.
     let largeItems = (0..<6000).map { index in
         CandidateIndex.Item(text: "𠮷词\(index)", code: "ab" + String(UnicodeScalar(97 + index % 26)!),
