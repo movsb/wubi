@@ -32,8 +32,8 @@ enum InputSourceTool {
             let notification = Process()
             notification.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
             notification.arguments = arguments[1] == "notify-success"
-                ? ["-e", "display notification \"最新版本已启动，可以继续输入。\" with title \"小桃的五笔重新加载成功\""]
-                : ["-e", "display notification \"请查看 ~/Library/Logs/Wubi/reload.log，更新流程已尝试恢复原输入法。\" with title \"小桃的五笔重新加载失败\""]
+                ? ["-e", "display notification \"最新版本已启动，可以继续输入。\" with title \"桃酥重新加载成功\""]
+                : ["-e", "display notification \"请查看 ~/Library/Logs/Wubi/reload.log，更新流程已尝试恢复原输入法。\" with title \"桃酥重新加载失败\""]
             do {
                 try notification.run()
                 notification.waitUntilExit()
@@ -57,7 +57,7 @@ enum InputSourceTool {
                 // Stop this known input-method PID directly, without AppKit lifecycle caching.
                 guard kill(app.processIdentifier, SIGTERM) == 0 || errno == ESRCH else {
                     _ = TISSelectInputSource(current)
-                    fail("无法停止小桃的五笔输入法进程")
+                    fail("无法停止桃酥输入法进程")
                 }
             }
             // NSRunningApplication.isTerminated can remain stale in a command-line helper.
@@ -77,7 +77,7 @@ enum InputSourceTool {
                 }
                 RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
             }
-            fail("更新已完成，但无法恢复输入源，请从菜单栏手动选择「小桃的五笔」")
+            fail("更新已完成，但无法恢复输入源，请从菜单栏手动选择「桃酥」")
         default: fail("未知命令")
         }
     }

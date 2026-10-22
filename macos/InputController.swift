@@ -56,12 +56,12 @@ class WubiInputController: IMKInputController {
     }
 
     override func menu() -> NSMenu! {
-        let menu = NSMenu(title: "小桃的五笔")
+        let menu = NSMenu(title: "桃酥")
         menu.autoenablesItems = false
         let item = NSMenuItem(title: "重新构建并加载输入法", action: #selector(rebuildAndReload(_:)), keyEquivalent: "")
         item.target = self
         item.isEnabled = reloadScript != nil && Self.reloadProcess == nil
-        item.toolTip = "从本机源码构建并重启小桃的五笔，无需注销"
+        item.toolTip = "从本机源码构建并重启桃酥，无需注销"
         menu.addItem(item)
         let manual = NSMenuItem(title: "手动造词", action: #selector(startManualPhrase(_:)), keyEquivalent: "")
         manual.target = self
@@ -124,7 +124,7 @@ class WubiInputController: IMKInputController {
         // Pass text as arguments, independently of the focused input client.
         notification.arguments = ["-e", """
             on run argv
-                display notification (item 1 of argv) with title "小桃的五笔词库"
+                display notification (item 1 of argv) with title "桃酥词库"
             end run
             """, message]
         notification.standardOutput = FileHandle.nullDevice

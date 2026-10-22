@@ -2,8 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.movsb.inputmethod.Wubi</string>
-<key>CFBundleName</key><string>小桃的五笔</string>
-<key>CFBundleDisplayName</key><string>小桃的五笔</string>
+<key>CFBundleName</key><string>桃酥</string>
+<key>CFBundleDisplayName</key><string>桃酥</string>
 <key>CFBundleExecutable</key><string>Wubi</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
@@ -16,5 +16,6 @@
 <key>tsInputMethodCharacterRepertoireKey</key><array><string>Hans</string></array>
 <key>TISInputSourceID</key><string>com.movsb.inputmethod.Wubi</string>
 <key>TISIntendedLanguage</key><string>zh-Hans</string>
-<key>tsInputMethodIconLabel</key><string>五</string>
+<key>tsInputMethodIconFileKey</key><string>CookieTemplate.tiff</string>
+<key>TISIconIsTemplate</key><true/>
 </dict></plist>

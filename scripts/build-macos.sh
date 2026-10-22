@@ -16,6 +16,8 @@ app="$PWD/build/Wubi.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" build/module-cache
 ./scripts/test.sh
 cp macos/Info.plist "$app/Contents/Info.plist"
+xcrun swift -module-cache-path "$PWD/build/module-cache" scripts/generate-menu-icon.swift \
+  "$app/Contents/Resources/CookieTemplate.tiff" "$PWD/build/menu-icon-preview.png"
 printf '%s\n' "$PWD" > "$app/Contents/Resources/DevelopmentSourcePath.txt"
 rm -f "$app/Contents/Resources/"*.dict.yaml "$app/Contents/Resources/"wubi*.txt "$app/Contents/Resources/pinyin_simp.txt"
 cp "${dicts[@]}" "$app/Contents/Resources/"
