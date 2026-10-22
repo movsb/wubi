@@ -263,7 +263,8 @@ class WubiInputController: IMKInputController {
         var rect = NSRect.zero
         _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
         let screen = NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.main
-        let bounds = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // Candidate panels may overlap the Dock to stay close to the insertion point.
+        let bounds = screen?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         // Measure the current page, independent of the previous label frame.
         // Include the label's internal inset in addition to the window padding.
         let width = min(bounds.width, ceil(contentWidth ?? text.size().width) + 16)
