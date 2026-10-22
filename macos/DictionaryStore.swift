@@ -115,6 +115,8 @@ final class DictionaryStore {
         let wubiRows = rows(bundled.filter { $0.lastPathComponent.hasPrefix("wubi") && $0.lastPathComponent != "wubi_merged.txt" })
         let pinyinRows = rows(bundled.filter { $0.lastPathComponent == "pinyin_simp.txt" })
             + rows(files(userDictionary, suffix: ".txt"), userText: true)
+            + rows(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent("manual.txt").path)
+                   ? [dataDirectory.appendingPathComponent("manual.txt")] : [], userText: true)
         var newPinyin = PinyinDictionary(rows: pinyinRows)
         struct Settings: Decodable { let mergePinyinIntoWubi: Bool? }
         let settingsURL = dataDirectory.appendingPathComponent("settings.json")

@@ -106,3 +106,49 @@ try Data("invalid".utf8).write(to: usageURL)
 check(WordUsageStore(url: usageURL).counts.isEmpty, "invalid usage file falls back to dictionary order")
 print("PASS: personal word usage checks")
 print("PASS: \(checks) assertions")
+
+let manualRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+defer { try? FileManager.default.removeItem(at: manualRoot) }
+let manualURL = manualRoot.appendingPathComponent("manual.txt")
+let readingsDictionary = PinyinDictionary(rows: [
+    .init(word: "重", code: "zhong", weight: 10), .init(word: "重", code: "chong", weight: 5),
+    .init(word: "行", code: "xing", weight: 10), .init(word: "行", code: "hang", weight: 5),
+])
+let combinations = try ManualReadings(word: "重行", readings: readingsDictionary.readings)
+check(combinations.count == 4, "manual phrase enumerates all polyphonic combinations")
+check((0..<4).compactMap(combinations.spelling) == ["zhong xing", "zhong hang", "chong xing", "chong hang"], "manual readings stable ordering")
+check(combinations.spelling(at: 4) == nil, "manual readings reject out of bounds selection")
+do {
+    _ = try ManualReadings(word: "未知", readings: readingsDictionary.readings)
+    check(false, "missing pronunciation must fail")
+} catch {}
+try ManualReadings.save(word: "重行", spelling: "chong hang", to: manualURL)
+try ManualReadings.save(word: "重行", spelling: "chong hang", to: manualURL)
+try ManualReadings.save(word: "重行", spelling: "zhong xing", to: manualURL)
+let savedManualRows = try DictionaryRow.readUserText(manualURL)
+check(savedManualRows.count == 2, "manual save deduplicates and preserves alternative readings")
+let manualBeforeInvalidSave = try Data(contentsOf: manualURL)
+for (invalidWord, invalidSpelling) in [
+    ("重\n行", "chong hang"), ("重\r\n行", "chong hang"),
+    ("重\t行", "chong hang"), ("重\u{2028}行", "chong hang"),
+    ("重行", "chong\nhang"), ("重行", "chong\thang"),
+] {
+    do {
+        try ManualReadings.save(word: invalidWord, spelling: invalidSpelling, to: manualURL)
+        check(false, "save must reject record separators in word or spelling")
+    } catch {}
+    let afterInvalidSave = try Data(contentsOf: manualURL)
+    check(afterInvalidSave == manualBeforeInvalidSave, "invalid save must leave manual.txt byte-for-byte unchanged")
+}
+let manualResources = manualRoot.appendingPathComponent("resources")
+try FileManager.default.createDirectory(at: manualResources, withIntermediateDirectories: true)
+try "重\ttgjf\t1\n行\ttfhh\t1\n".write(to: manualResources.appendingPathComponent("wubi.txt"), atomically: true, encoding: .utf8)
+try "重\tzhong\t1\n行\txing\t1\n".write(to: manualResources.appendingPathComponent("pinyin_simp.txt"), atomically: true, encoding: .utf8)
+let manualStore = DictionaryStore(resourceDirectory: manualResources, dataDirectory: manualRoot, log: { _ in })
+check(manualStore.pinyin.lookup("chonghang") == ["重行"], "root manual.txt loads selected pronunciation")
+check(manualStore.wubi.lookup("tgtf") == ["重行"], "manual phrase generates Wubi code")
+let manualSnapshot = manualRoot.appendingPathComponent("snapshot")
+try manualStore.writeSnapshot(to: manualSnapshot)
+let mappedReadings = try PinyinDictionary(indexDirectory: manualSnapshot, count: manualStore.pinyin.count)
+check(mappedReadings.readings(for: "重") == ["zhong"], "character readings survive builder snapshot")
+print("PASS: manual phrase pronunciation, persistence and runtime loading")
