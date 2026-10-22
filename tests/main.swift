@@ -1,6 +1,8 @@
 import Foundation
 
+var checks = 0
 func check(_ condition: @autoclosure () -> Bool, _ message: String) {
+    checks += 1
     if !condition() { fatalError(message) }
 }
 let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dict.yaml")
@@ -22,12 +24,16 @@ check(fixture.lookup("Q") == ["我", "金"], "uppercase lookup")
 check(fixture.lookup("bad!").isEmpty, "invalid code")
 check(fixture.lookup("zzzz") == ["表情"], "additional columns")
 check(fixture.lookup("missing").isEmpty, "missing code")
-let real = try WubiDictionary(urls: [URL(fileURLWithPath: "wubi86_jidian.dict.yaml")])
-check(real.count > 50000, "full dictionary loaded")
-check(real.lookup("q").first == "我", "first candidate")
-check(real.lookup("imde").contains("没有"), "four-letter phrase")
-check(real.lookup("qytr").contains("勿忘我"), "original example")
-print("PASS: dictionary checks; loaded \(real.count) entries")
+if FileManager.default.fileExists(atPath: "wubi86_jidian.dict.yaml") {
+    let real = try WubiDictionary(urls: [URL(fileURLWithPath: "wubi86_jidian.dict.yaml")])
+    check(real.count > 50000, "full dictionary loaded")
+    check(real.lookup("q").first == "我", "first candidate")
+    check(real.lookup("imde").contains("没有"), "four-letter phrase")
+    check(real.lookup("qytr").contains("勿忘我"), "original example")
+    print("PASS: full dictionary checks; loaded \(real.count) entries")
+} else {
+    print("SKIP: optional downloaded dictionary; fixture tests still run")
+}
 
 var punctuation = ChinesePunctuation()
 check(punctuation.convert(",") == "，", "Chinese comma")
@@ -45,3 +51,5 @@ check(punctuation.convert("\"") == "“", "quote reset after session change")
 check(punctuation.convert("-") == nil && punctuation.convert("=") == nil, "paging keys unchanged")
 check(punctuation.convert("1") == nil && punctuation.convert("a") == nil, "non-punctuation passthrough")
 print("PASS: punctuation and quote state checks")
+runInputEngineTests()
+print("PASS: \(checks) assertions")

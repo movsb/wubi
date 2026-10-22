@@ -8,10 +8,10 @@ class WubiInputController: IMKInputController {
         do { return try WubiDictionary(urls: urls.filter { $0.lastPathComponent.hasSuffix(".dict.yaml") }) }
         catch { NSLog("Wubi dictionary error: %@", String(describing: error)); return try! WubiDictionary(urls: []) }
     }()
-    private var code = ""
-    private var page = 0
-    private var punctuation = ChinesePunctuation()
-    private var choices: [String] { Self.dictionary.lookup(code) }
+    private lazy var engine = InputEngine(lookup: Self.dictionary.lookup)
+    private var code: String { engine.code }
+    private var page: Int { engine.page }
+    private var choices: [String] { engine.choices }
     private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
     private let missingRange = NSRange(location: NSNotFound, length: 0)
@@ -75,99 +75,92 @@ class WubiInputController: IMKInputController {
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         guard let event, let client = sender as? IMKTextInput, event.type == .keyDown else { return false }
-        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
-            if !code.isEmpty { commitComposition(sender) }
-            return false
-        }
-        let text = event.characters ?? ""
-        if text.utf8.count == 1, let byte = text.utf8.first, (97...122).contains(byte), !event.modifierFlags.contains(.capsLock) {
-            if code.count == 4 { commitComposition(sender) }
-            code += text
-            page = 0
-            refresh(client)
-            return true
-        }
-        if !event.modifierFlags.contains(.capsLock), let symbol = punctuation.convert(text) {
-            commitComposition(sender)
-            insert(symbol, client)
-            return true
-        }
-        guard !code.isEmpty else { return false }
-        switch event.keyCode {
-        case 53: clear(client)
-        case 51:
-            code.removeLast(); page = 0; refresh(client)
-        case 36, 76: insert(code, client)
-        case 49: commitComposition(sender)
-        case 123, 126, 116: page = max(0, page - 1); refresh(client)
-        case 124, 125, 121: page = min(max(0, (choices.count - 1) / 9), page + 1); refresh(client)
-        default:
-            if let digit = Int(text), (1...9).contains(digit) {
-                let index = page * 9 + digit - 1
-                if choices.indices.contains(index) { insert(choices[index], client) }
-            } else if text == "-" || text == "=" {
-                page = min(max(0, (choices.count - 1) / 9), max(0, page + (text == "=" ? 1 : -1)))
-                refresh(client)
-            } else {
-                commitComposition(sender)
-                return false
-            }
-        }
-        return true
+        let result = engine.handle(InputKey(
+            text: event.characters ?? "", code: event.keyCode,
+            capsLock: event.modifierFlags.contains(.capsLock),
+            shortcut: !event.modifierFlags.intersection([.command, .control, .option]).isEmpty))
+        apply(result.effects, to: client)
+        return result.handled
     }
 
     override func commitComposition(_ sender: Any!) {
-        guard !code.isEmpty, let client = sender as? IMKTextInput else { return }
-        let values = choices
-        insert(values.isEmpty ? code : values[min(page * 9, values.count - 1)], client)
+        guard let client = sender as? IMKTextInput else { return }
+        apply(engine.commit(), to: client)
     }
 
     override func deactivateServer(_ sender: Any!) {
-        commitComposition(sender)
-        punctuation.reset()
+        let effects = engine.deactivate()
+        if let client = sender as? IMKTextInput { apply(effects, to: client) }
         panel?.orderOut(nil)
         super.deactivateServer(sender)
     }
 
-    private func insert(_ text: String, _ client: IMKTextInput) {
-        code = ""; page = 0
-        client.insertText(text, replacementRange: missingRange)
-        panel?.orderOut(nil)
-    }
-
-    private func clear(_ client: IMKTextInput) {
-        code = ""; page = 0
-        client.setMarkedText("", selectionRange: NSRange(location: 0, length: 0), replacementRange: missingRange)
-        panel?.orderOut(nil)
+    private func apply(_ effects: [InputEffect], to client: IMKTextInput) {
+        for effect in effects {
+            switch effect {
+            case .insert(let text):
+                client.insertText(text, replacementRange: missingRange)
+                panel?.orderOut(nil)
+            case .refresh:
+                refresh(client)
+            }
+        }
     }
 
     private func refresh(_ client: IMKTextInput) {
         client.setMarkedText(code, selectionRange: NSRange(location: code.utf16.count, length: 0), replacementRange: missingRange)
         guard !code.isEmpty else { panel?.orderOut(nil); return }
         if panel == nil {
-            let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 70), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.level = .popUpMenu
             window.hasShadow = true
             window.backgroundColor = .windowBackgroundColor
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
             window.ignoresMouseEvents = true
-            label.font = .systemFont(ofSize: 16)
+            label.font = .systemFont(ofSize: 13)
             label.maximumNumberOfLines = 0
             window.contentView?.addSubview(label)
             panel = window
         }
         let values = choices
+        guard !values.isEmpty else { panel?.orderOut(nil); return }
         let start = min(page * 9, values.count)
         let visible = values.dropFirst(start).prefix(9)
-        label.stringValue = code + "   \(page + 1)/\(max(1, (values.count + 8) / 9))\n" + (values.isEmpty ? "无候选词 · 回车输入编码" : visible.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
-        let width = min(720, max(280, label.intrinsicContentSize.width + 24))
-        let height = max(72, label.intrinsicContentSize.height + 20)
-        label.frame = NSRect(x: 12, y: 10, width: width - 24, height: height - 20)
+        let text = NSMutableAttributedString(string: "")
+        let wordFont = NSFont.systemFont(ofSize: 13)
+        let numberFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let wordAttributes: [NSAttributedString.Key: Any] = [
+            .font: wordFont,
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let numberAttributes: [NSAttributedString.Key: Any] = [
+            .font: numberFont,
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .baselineOffset: (wordFont.ascender + wordFont.descender - numberFont.ascender - numberFont.descender) / 2,
+        ]
+        if values.isEmpty {
+            text.append(NSAttributedString(string: "无候选词 · 回车输入编码", attributes: wordAttributes))
+        } else {
+            for (index, word) in visible.enumerated() {
+                if index > 0 { text.append(NSAttributedString(string: "\n", attributes: wordAttributes)) }
+                text.append(NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes))
+                text.append(NSAttributedString(string: word, attributes: wordAttributes))
+            }
+        }
+        label.attributedStringValue = text
         var rect = NSRect.zero
         _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
         let screen = NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.main
         let bounds = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        // Measure the current page, independent of the previous label frame.
+        // Include the label's internal inset in addition to the window padding.
+        let width = min(bounds.width, ceil(text.size().width) + 16)
+        let measured = text.boundingRect(
+            with: NSSize(width: max(1, width - 16), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading])
+        let height = ceil(measured.height) + 8
+        label.frame = NSRect(x: 6, y: 4, width: width - 12, height: height - 8)
         let x = min(max(rect.minX, bounds.minX), max(bounds.minX, bounds.maxX - width))
         let y = rect.minY - height - 4 < bounds.minY ? min(rect.maxY + 4, bounds.maxY - height) : rect.minY - height - 4
         panel?.setFrame(NSRect(x: x, y: max(bounds.minY, y), width: width, height: height), display: true)
