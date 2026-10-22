@@ -4,12 +4,16 @@ struct InputKey {
     var code: UInt16 = 0
     var capsLock = false
     var shortcut = false
+    var isModifierChange = false
+    var leftShiftDown = false
+    var otherModifier = false
 }
 
 enum InputEffect: Equatable {
     case insert(String)
     case refresh
     case quoteHint(String)
+    case modeHint(String)
 }
 
 struct InputResult {
@@ -20,6 +24,9 @@ struct InputResult {
 struct InputEngine {
     private(set) var code = ""
     private(set) var selectedIndex = 0
+    private(set) var englishMode = false
+    private var leftShiftPressed = false
+    private var shiftTapPending = false
     var page: Int { selectedIndex / 9 }
     private var punctuation = ChinesePunctuation()
     private let lookup: (String) -> [String]
@@ -32,6 +39,10 @@ struct InputEngine {
     }
 
     mutating func handle(_ key: InputKey) -> InputResult {
+        if key.isModifierChange { return handleModifiers(key) }
+        shiftTapPending = false
+        // Let the client handle text and editing keys directly in English mode.
+        if englishMode { return InputResult(handled: false) }
         if key.shortcut { return InputResult(handled: false, effects: commit()) }
         let text = key.text
         if text.utf8.count == 1, let byte = text.utf8.first,
@@ -95,7 +106,34 @@ struct InputEngine {
     mutating func deactivate() -> [InputEffect] {
         let effects = commit()
         punctuation.reset()
+        leftShiftPressed = false
+        shiftTapPending = false
         return effects
+    }
+
+    private mutating func handleModifiers(_ key: InputKey) -> InputResult {
+        guard key.code == 56 else {
+            shiftTapPending = false
+            return InputResult(handled: false)
+        }
+        let wasPressed = leftShiftPressed
+        leftShiftPressed = key.leftShiftDown
+        if key.leftShiftDown && !wasPressed {
+            shiftTapPending = !key.shortcut && !key.otherModifier
+        } else if !key.leftShiftDown && wasPressed {
+            let shouldToggle = shiftTapPending && !key.shortcut && !key.otherModifier
+            shiftTapPending = false
+            if shouldToggle {
+                var effects: [InputEffect] = []
+                // Preserve an unfinished word as typed when explicitly switching to English.
+                if !code.isEmpty { effects.append(insert(code)) }
+                englishMode.toggle()
+                punctuation.reset()
+                effects.append(.modeHint(englishMode ? "英" : "中"))
+                return InputResult(handled: true, effects: effects)
+            }
+        }
+        return InputResult(handled: false)
     }
 
     private mutating func selectPage(_ requested: Int) {

@@ -102,19 +102,24 @@ class WubiInputController: IMKInputController {
         }
     }
 
+    override func recognizedEvents(_ sender: Any!) -> Int {
+        Int(NSEvent.EventTypeMask.keyDown.union(.flagsChanged).rawValue)
+    }
+
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
-        guard let event, let client = sender as? IMKTextInput, event.type == .keyDown else { return false }
-        dismissQuoteHint()
-        let result = engine.handle(InputKey(
-            text: event.characters ?? "", code: event.keyCode,
-            capsLock: event.modifierFlags.contains(.capsLock),
-            shortcut: !event.modifierFlags.intersection([.command, .control, .option]).isEmpty))
+        guard let event, let client = sender as? IMKTextInput,
+              event.type == .keyDown || event.type == .flagsChanged else { return false }
+        // Modifier notifications can follow the Shift release that shows the mode hint.
+        if event.type == .keyDown { dismissQuoteHint() }
+        let result = engine.handle(InputKey(event: event))
         apply(result.effects, to: client)
         return result.handled
     }
 
     override func commitComposition(_ sender: Any!) {
-        guard let client = sender as? IMKTextInput else { return }
+        // InputMethodKit may request a commit after a mode switch even with no preedit.
+        // That is not new input and must not dismiss the just-shown hint.
+        guard !code.isEmpty, let client = sender as? IMKTextInput else { return }
         dismissQuoteHint()
         apply(engine.commit(), to: client)
     }
@@ -135,7 +140,7 @@ class WubiInputController: IMKInputController {
                 panel?.orderOut(nil)
             case .refresh:
                 refresh(client)
-            case .quoteHint(let text):
+            case .quoteHint(let text), .modeHint(let text):
                 showQuoteHint(text, client: client)
             }
         }

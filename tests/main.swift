@@ -52,4 +52,5 @@ check(punctuation.convert("-") == nil && punctuation.convert("=") == nil, "pagin
 check(punctuation.convert("1") == nil && punctuation.convert("a") == nil, "non-punctuation passthrough")
 print("PASS: punctuation and quote state checks")
 runInputEngineTests()
+runKeyEventTests()
 print("PASS: \(checks) assertions")

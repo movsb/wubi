@@ -5,6 +5,7 @@ private struct Session {
     var output = ""
     var marked = ""
     var hints: [String] = []
+    var modeHints: [String] = []
 
     init() {
         let words = ["q": ["我", "金"], "imde": ["没有"],
@@ -37,6 +38,7 @@ private struct Session {
             case .insert(let text): output += text; marked = ""
             case .refresh: marked = engine.code
             case .quoteHint(let text): hints.append(text)
+            case .modeHint(let text): modeHints.append(text)
             }
         }
     }
@@ -44,6 +46,17 @@ private struct Session {
     mutating func deactivate() {
         let effects = engine.deactivate()
         apply(effects)
+    }
+
+    mutating func modifiers(code: UInt16 = 56, leftDown: Bool, shortcut: Bool = false, other: Bool = false) {
+        let result = engine.handle(InputKey(code: code, shortcut: shortcut,
+            isModifierChange: true, leftShiftDown: leftDown, otherModifier: other))
+        apply(result.effects)
+    }
+
+    mutating func tapLeftShift() {
+        modifiers(leftDown: true)
+        modifiers(leftDown: false)
     }
 }
 
@@ -272,5 +285,76 @@ func runInputEngineTests() {
     check(quote.effects == [.insert("我"), .insert("“"), .quoteHint("左")],
           "hint follows Chinese candidate and actual quote insertion")
     check(session.output == "我“" && session.marked.isEmpty, "hint never inserts explanatory text into document")
-    print("PASS: preedit, mixed input, selection, paging, punctuation and quote hint regressions")
+    session = Session()
+    session.modifiers(leftDown: true)
+    check(!session.engine.englishMode, "Shift down alone waits for release")
+    session.modifiers(leftDown: false)
+    check(session.engine.englishMode && session.modeHints == ["英"], "left Shift tap enables English with hint")
+    let direct = session.key("q")
+    check(!direct.handled && direct.effects.isEmpty && session.output == "q" && session.marked.isEmpty,
+          "English letters go directly to client without preedit")
+    session.type("Hello123,.'\"")
+    check(session.output == "qHello123,.'\"" && session.hints.isEmpty && session.marked.isEmpty,
+          "English mode preserves letters digits punctuation and quotes")
+    session.key(" ", code: 49)
+    session.key("\r", code: 36)
+    check(session.output.hasSuffix(" \n"), "English space and Return pass directly to client")
+    check(!session.key("", code: 125).handled, "English navigation is not intercepted")
+    let englishShortcut = session.key("c", shortcut: true)
+    check(!englishShortcut.handled && englishShortcut.effects.isEmpty, "English shortcuts pass through")
+    session.tapLeftShift()
+    check(!session.engine.englishMode && session.modeHints == ["英", "中"], "second left Shift tap restores Chinese")
+    session.type("q")
+    session.key(" ", code: 49)
+    check(session.output.hasSuffix("我") && session.marked.isEmpty, "Chinese composition works after switching back")
+
+    session = Session()
+    session.type("q")
+    session.tapLeftShift()
+    check(session.output == "q" && session.marked.isEmpty && session.engine.englishMode,
+          "switching to English preserves unfinished raw text instead of choosing Chinese")
+    session.key("\u{7f}", code: 51)
+    check(session.output.isEmpty && session.marked.isEmpty, "English Backspace edits client directly")
+    session.deactivate()
+    check(session.engine.englishMode, "deactivation does not reset language preference")
+
+    session = Session()
+    session.modifiers(leftDown: true)
+    session.key("A")
+    session.modifiers(leftDown: false)
+    check(!session.engine.englishMode && session.marked == "A" && session.modeHints.isEmpty,
+          "Shift-letter chord does not toggle mode")
+    session.key("\u{1b}", code: 53)
+    session.modifiers(leftDown: true)
+    session.key("?")
+    session.modifiers(leftDown: false)
+    check(!session.engine.englishMode && session.output == "？", "Shift-symbol chord does not toggle mode")
+    session.modifiers(code: 60, leftDown: false, other: true)
+    session.modifiers(code: 60, leftDown: false)
+    check(!session.engine.englishMode, "right Shift does not toggle mode")
+    session.modifiers(leftDown: true, shortcut: true)
+    session.modifiers(leftDown: false, shortcut: true)
+    check(!session.engine.englishMode, "Command-Control-Option with Shift does not toggle")
+    session.modifiers(leftDown: true)
+    session.modifiers(code: 55, leftDown: true, shortcut: true)
+    session.modifiers(code: 55, leftDown: true)
+    session.modifiers(leftDown: false)
+    check(!session.engine.englishMode, "another modifier pressed during Shift cancels tap")
+    session.modifiers(leftDown: true)
+    session.modifiers(code: 60, leftDown: true, other: true)
+    session.modifiers(leftDown: false, other: true)
+    session.modifiers(code: 60, leftDown: false)
+    check(!session.engine.englishMode, "holding both Shift keys does not toggle")
+    session.modifiers(leftDown: true)
+    session.deactivate()
+    session.modifiers(leftDown: false)
+    check(!session.engine.englishMode, "deactivation cancels a pending Shift tap")
+    session.tapLeftShift()
+    check(session.engine.englishMode, "Shift tap still works after interrupted tap")
+    session.modifiers(leftDown: true)
+    session.key("B")
+    session.modifiers(leftDown: false)
+    check(session.engine.englishMode && session.output.hasSuffix("B") && session.marked.isEmpty,
+          "Shift-uppercase in English remains direct English input")
+    print("PASS: preedit, mixed input, selection, punctuation, quote hints and Shift mode regressions")
 }

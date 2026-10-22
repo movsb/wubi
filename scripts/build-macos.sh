@@ -16,7 +16,7 @@ rm -f "$app/Contents/Resources/"*.dict.yaml
 cp "${dicts[@]}" "$app/Contents/Resources/"
 xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
   -target "$(uname -m)-apple-macosx13.0" -framework Cocoa -framework InputMethodKit \
-  macos/Dictionary.swift macos/Punctuation.swift macos/InputEngine.swift macos/InputController.swift macos/main.swift \
+  macos/Dictionary.swift macos/Punctuation.swift macos/InputEngine.swift macos/KeyEvent.swift macos/InputController.swift macos/main.swift \
   -o "$app/Contents/MacOS/Wubi"
 codesign --force --sign - "$app"
 echo "构建完成：$app"
