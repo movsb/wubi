@@ -15,6 +15,24 @@ func runDictionaryStoreTests() throws {
         try write(pinyin, to: b)
         return DictionaryMerger.merge(wubiRows: try DictionaryRow.read(a), pinyin: try PinyinDictionary(url: b))
     }
+    let lineFixture = temporary.appendingPathComponent("line-endings.dict.yaml")
+    try "---\r\nname: lines\r\n...\r\n# 注释\r\n甲\tabcd\t12%\r\n乙\tefgh\tNaN\r丙\tijkl\t3".write(to: lineFixture, atomically: true, encoding: .utf8)
+    let lineRows = try DictionaryRow.read(lineFixture)
+    check(lineRows.map(\.word) == ["甲", "乙", "丙"], "streaming parser handles CRLF, CR and an unterminated last line")
+    check(lineRows.map(\.weight) == [12, 0, 3], "streaming parser preserves percent and nonfinite weight handling")
+    let reportRows = (1...40).map { DictionaryRow(word: "甲" + String(repeating: "乙", count: $0), code: "jia " + Array(repeating: "yi", count: $0).joined(separator: " "), weight: Double($0)) }
+    let reportResult = DictionaryMerger.merge(wubiRows: [.init(word: "甲", code: "abcd", weight: 1), .init(word: "乙", code: "efgh", weight: 1)], pinyin: PinyinDictionary(rows: reportRows))
+    try reportResult.report.write(to: temporary)
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    let reportURL = temporary.appendingPathComponent("dictionary-merge-report.json")
+    let firstReportData = try Data(contentsOf: reportURL)
+    let decodedReport = try decoder.decode(DictionaryMergeReport.self, from: firstReportData)
+    check(decodedReport.newPhrases.count == 40 && decodedReport.newPhrases.first?.roots == ["甲": "abcd", "乙": "efgh"], "streamed report preserves every entry and per-word roots")
+    check(reportResult.report.summary().newPhrases.count == 30 && reportResult.report.summary().addedPhrases == 40, "resident report summary is bounded without truncating total counts")
+    try reportResult.report.write(to: temporary)
+    let secondReportData = try Data(contentsOf: reportURL)
+    check(secondReportData == firstReportData, "atomic streamed report replacement is deterministic")
     let roots = ["甲": "abcd", "乙": "efgh", "丙": "ijkl", "丁": "mnop", "戊": "qrst"]
     check(DictionaryMerger.phraseCode("甲乙", roots: roots) == "abef", "two-character Wubi phrase rule")
     check(DictionaryMerger.phraseCode("甲乙丙", roots: roots) == "aeij", "three-character Wubi phrase rule")
@@ -58,6 +76,7 @@ func runDictionaryStoreTests() throws {
     try write("甲乙\tjia yi\t100\n原词\tyuan ci\t5\n你\tni\t1000\n", to: resources.appendingPathComponent("pinyin_simp.dict.yaml"))
     let originalBytes = try Data(contentsOf: baseURL)
     let store = DictionaryStore(resourceDirectory: resources, dataDirectory: data, log: { _ in })
+    check(store.pinyin.frequencies.isEmpty && store.pinyin.wordsInOrder.isEmpty, "runtime releases merge-only Pinyin metadata")
     check(store.wubi.lookup("abef") == ["甲乙", "原词"] && store.report?.addedPhrases == 1, "startup merges raw bundled dictionaries")
     check(store.wubi.lookup("ni").isEmpty && store.pinyin.lookup("ni") == ["你"], "Pinyin codes are never loaded as Wubi codes")
     check(FileManager.default.fileExists(atPath: data.appendingPathComponent("Dictionaries/Wubi").path)

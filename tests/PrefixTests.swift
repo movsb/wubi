@@ -1,6 +1,43 @@
 import Foundation
 
 func runPrefixTests() throws {
+    // Differential check against a String-based reference, including large uncached results.
+    let largeItems = (0..<6000).map { index in
+        CandidateIndex.Item(text: "𠮷词\(index)", code: "ab" + String(UnicodeScalar(97 + index % 26)!),
+                            weight: Double(index % 37), order: index)
+    }
+    let packed = CandidateIndex(items: largeItems)
+    func reference(_ prefix: String) -> [InputCandidate] {
+        let exact = largeItems.filter { $0.code == prefix }.sorted { $0.order < $1.order }
+        let completion = largeItems.filter { $0.code.hasPrefix(prefix) && $0.code != prefix }.sorted {
+            if $0.weight != $1.weight { return $0.weight > $1.weight }
+            if $0.code.count != $1.code.count { return $0.code.count < $1.code.count }
+            return $0.code == $1.code ? $0.order < $1.order : $0.code < $1.code
+        }
+        return (exact + completion).map { .init(text: $0.text, remainingCode: String($0.code.dropFirst(prefix.count))) }
+    }
+    for prefix in ["ab", "aba", "abz", "a", "zz"] {
+        check(packed.candidates(prefix: prefix) == reference(prefix), "packed UTF-8 index matches reference for \(prefix)")
+        check(packed.lookup(prefix) == largeItems.filter { $0.code == prefix }.map(\.text), "packed exact lookup preserves source order")
+    }
+    let indexURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: indexURL) }
+    try packed.write(to: indexURL)
+    let mappedIndex = try CandidateIndex(mappedURL: indexURL)
+    // Removing the file must not invalidate the active mapping.
+    try FileManager.default.removeItem(at: indexURL)
+    for prefix in ["ab", "aba", "abz", "zz"] {
+        check(mappedIndex.candidates(prefix: prefix) == reference(prefix), "mapped index survives unlink and preserves prefix results")
+        check(mappedIndex.lookup(prefix) == packed.lookup(prefix), "mapped exact lookup matches packed index")
+    }
+    try Data("bad index".utf8).write(to: indexURL)
+    do {
+        _ = try CandidateIndex(mappedURL: indexURL)
+        check(false, "corrupt mapped index must be rejected")
+    } catch { check(true, "corrupt mapped index is rejected") }
+    check(packed.cachedCandidates <= 4096, "prefix cache has a total candidate budget")
+    check(packed.candidates(prefix: "ab") == reference("ab") && packed.cachedCandidates <= 4096,
+          "large prefix stays complete without entering cache")
     let wubiRows = [
         DictionaryRow(word: "短码词", code: "im", weight: 1),
         DictionaryRow(word: "没有", code: "imde", weight: 100),

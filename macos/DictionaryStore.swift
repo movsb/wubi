@@ -1,12 +1,15 @@
 import Foundation
+import Darwin
 
 final class DictionaryStore {
     static var defaultDataDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Wubi", isDirectory: true)
     }
-    static let shared = DictionaryStore(resourceDirectory: Bundle.main.resourceURL!, dataDirectory: defaultDataDirectory)
+    static let shared = DictionaryStore(resourceDirectory: Bundle.main.resourceURL!, dataDirectory: defaultDataDirectory,
+                                        builderURL: Bundle.main.url(forAuxiliaryExecutable: "WubiDictionaryBuilder"))
 
+    private let builderURL: URL?
     private let resourceDirectory: URL
     private let log: (String) -> Void
     let dataDirectory: URL
@@ -16,7 +19,8 @@ final class DictionaryStore {
     private(set) var issues: [String] = []
     private(set) var mergeEnabled = true
 
-    init(resourceDirectory: URL, dataDirectory: URL, log: @escaping (String) -> Void = { NSLog("%@", $0) }) {
+    init(resourceDirectory: URL, dataDirectory: URL, builderURL: URL? = nil, log: @escaping (String) -> Void = { NSLog("%@", $0) }) {
+        self.builderURL = builderURL
         self.resourceDirectory = resourceDirectory
         self.dataDirectory = dataDirectory
         self.log = log
@@ -25,6 +29,65 @@ final class DictionaryStore {
 
     @discardableResult
     func reload() -> Bool {
+        // Startup runs before the AppKit event loop can drain its autorelease pool.
+        let success = autoreleasepool { builderURL == nil ? reloadSnapshot() : reloadUsingBuilder() }
+        // Building a large snapshot is exceptional; return its freed scratch pages to macOS.
+        malloc_zone_pressure_relief(nil, 0)
+        return success
+    }
+
+    private struct Snapshot: Codable {
+        let wubiCount: Int
+        let pinyinCount: Int
+        let report: DictionaryMergeReport?
+        let issues: [String]
+        let mergeEnabled: Bool
+    }
+
+    func writeSnapshot(to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try wubi.writeIndex(to: directory.appendingPathComponent("wubi.index"))
+        try pinyin.writeIndices(to: directory)
+        let snapshot = Snapshot(wubiCount: wubi.count, pinyinCount: pinyin.count, report: report,
+                                issues: issues, mergeEnabled: mergeEnabled)
+        try JSONEncoder().encode(snapshot).write(to: directory.appendingPathComponent("snapshot.json"), options: .atomic)
+    }
+
+    private func reloadUsingBuilder() -> Bool {
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent("Wubi-index-" + UUID().uuidString)
+        // Mappings retain their open files after unlink; old snapshots survive failed reloads.
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        do {
+            let process = Process()
+            process.executableURL = builderURL
+            process.arguments = [resourceDirectory.path, dataDirectory.path, temporary.path]
+            process.standardOutput = FileHandle.nullDevice
+            process.standardError = FileHandle.standardError
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationReason == .exit, process.terminationStatus == 0 else {
+                throw NSError(domain: "Wubi.Builder", code: Int(process.terminationStatus),
+                              userInfo: [NSLocalizedDescriptionKey: "词库构建失败，保留此前的运行时词库"])
+            }
+            let snapshot = try JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: temporary.appendingPathComponent("snapshot.json")))
+            guard snapshot.wubiCount > 0 else { throw NSError(domain: "Wubi.Builder", code: 1) }
+            let nextWubi = try WubiDictionary(indexURL: temporary.appendingPathComponent("wubi.index"), count: snapshot.wubiCount)
+            let nextPinyin = try PinyinDictionary(indexDirectory: temporary, count: snapshot.pinyinCount)
+            wubi = nextWubi
+            pinyin = nextPinyin
+            report = snapshot.report
+            issues = snapshot.issues
+            mergeEnabled = snapshot.mergeEnabled
+            return true
+        } catch {
+            issues = [error.localizedDescription]
+            log("Wubi dictionaries: " + error.localizedDescription)
+            return false
+        }
+    }
+
+    @inline(never)
+    private func reloadSnapshot() -> Bool {
         var problems: [String] = []
         let userWubi = dataDirectory.appendingPathComponent("Dictionaries/Wubi", isDirectory: true)
         let userPinyin = dataDirectory.appendingPathComponent("Dictionaries/Pinyin", isDirectory: true)
@@ -58,7 +121,7 @@ final class DictionaryStore {
         let wubiRows = rows(bundled.filter { !(pinyinNames + ["wubi_merged.dict.yaml"]).contains($0.lastPathComponent) })
             + rows(files(userWubi))
         let pinyinRows = rows(bundled.filter { $0.lastPathComponent == preferredPinyin }) + rows(files(userPinyin))
-        let newPinyin = PinyinDictionary(rows: pinyinRows)
+        var newPinyin = PinyinDictionary(rows: pinyinRows)
         struct Settings: Decodable { let mergePinyinIntoWubi: Bool? }
         let settingsURL = dataDirectory.appendingPathComponent("settings.json")
         var enabled = true
@@ -75,11 +138,12 @@ final class DictionaryStore {
         let merged = enabled ? DictionaryMerger.merge(wubiRows: wubiRows, pinyin: newPinyin) : nil
         // Replace snapshots only after reading all sources; existing engine closures see the new data.
         wubi = merged?.dictionary ?? original
+        newPinyin.discardMergeMetadata()
         pinyin = newPinyin
-        report = merged?.report
+        report = merged?.report.summary()
         mergeEnabled = enabled
         do {
-            if let report { try report.write(to: dataDirectory) }
+            if let fullReport = merged?.report { try fullReport.write(to: dataDirectory) }
             else {
                 for file in ["dictionary-merge-report.json", "dictionary-merge-report.md"] {
                     let url = dataDirectory.appendingPathComponent(file)

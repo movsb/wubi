@@ -5,7 +5,29 @@ struct DictionaryMergeReport: Codable {
         let word: String
         let code: String
         let frequency: Double
-        let roots: [String: String]
+        private let characterCodes: [String: String]
+        var roots: [String: String] {
+            Dictionary(word.map { (String($0), characterCodes[String($0)]!) }, uniquingKeysWith: { a, _ in a })
+        }
+        init(word: String, code: String, frequency: Double, roots: [String: String]) {
+            self.word = word; self.code = code; self.frequency = frequency
+            characterCodes = roots
+        }
+        enum CodingKeys: String, CodingKey { case word, code, frequency, roots }
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            word = try values.decode(String.self, forKey: .word)
+            code = try values.decode(String.self, forKey: .code)
+            frequency = try values.decode(Double.self, forKey: .frequency)
+            characterCodes = try values.decode([String: String].self, forKey: .roots)
+        }
+        func encode(to encoder: Encoder) throws {
+            var values = encoder.container(keyedBy: CodingKeys.self)
+            try values.encode(word, forKey: .word)
+            try values.encode(code, forKey: .code)
+            try values.encode(frequency, forKey: .frequency)
+            try values.encode(roots, forKey: .roots)
+        }
     }
     struct Change: Codable {
         let code: String
@@ -28,11 +50,45 @@ struct DictionaryMergeReport: Codable {
     let firstCandidateChanges: [Change]
     let skipped: [Skipped]
 
+    // The complete report is on disk; retain only examples in the running input method.
+    func summary() -> DictionaryMergeReport {
+        .init(originalEntries: originalEntries, addedPhrases: addedPhrases, skippedPhrases: skippedPhrases,
+              mergedEntries: mergedEntries, changedFirstCandidates: changedFirstCandidates,
+              protectedShortCodes: protectedShortCodes, newPhrases: Array(newPhrases.prefix(30)),
+              firstCandidateChanges: Array(firstCandidateChanges.prefix(30)), skipped: Array(skipped.prefix(30)))
+    }
+
     func write(to directory: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.keyEncodingStrategy = .convertToSnakeCase
-        try encoder.encode(self).write(to: directory.appendingPathComponent("dictionary-merge-report.json"), options: .atomic)
+        // Encode entries separately so JSONEncoder never builds an enormous object graph.
+        let destination = directory.appendingPathComponent("dictionary-merge-report.json")
+        let temporary = directory.appendingPathComponent(".merge-report-" + UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        guard FileManager.default.createFile(atPath: temporary.path, contents: nil) else {
+            throw NSError(domain: "Wubi.Report", code: 1)
+        }
+        let handle = try FileHandle(forWritingTo: temporary)
+        defer { try? handle.close() }
+        func write(_ text: String) throws { try handle.write(contentsOf: Data(text.utf8)) }
+        func array<T: Encodable>(_ name: String, _ values: [T]) throws {
+            try write(",\n\"" + name + "\":[")
+            for (index, value) in values.enumerated() {
+                if index > 0 { try write(",") }
+                try autoreleasepool { try handle.write(contentsOf: encoder.encode(value)) }
+            }
+            try write("]")
+        }
+        try write("{\n\"original_entries\":\(originalEntries),\n\"added_phrases\":\(addedPhrases),\n\"skipped_phrases\":\(skippedPhrases),\n\"merged_entries\":\(mergedEntries),\n\"changed_first_candidates\":\(changedFirstCandidates),\n\"protected_short_codes\":\(protectedShortCodes)")
+        try array("new_phrases", newPhrases)
+        try array("first_candidate_changes", firstCandidateChanges)
+        try array("skipped", skipped)
+        try write("\n}")
+        try handle.close()
+        if FileManager.default.fileExists(atPath: destination.path) {
+            _ = try FileManager.default.replaceItemAt(destination, withItemAt: temporary)
+        } else { try FileManager.default.moveItem(at: temporary, to: destination) }
         var lines = ["# 五笔与拼音词库合并报告", "",
                      "- 原五笔词条：\(originalEntries)", "- 新增词语：\(addedPhrases)",
                      "- 跳过词语：\(skippedPhrases)", "- 保留顺序的简码组：\(protectedShortCodes)",
@@ -129,7 +185,7 @@ struct DictionaryMerger {
             protectedShortCodes: before.keys.filter { $0.count < 4 }.count,
             newPhrases: rankedAdded.map { entry in
                 .init(word: entry.row.word, code: entry.row.code, frequency: pinyin.frequencies[entry.row.word] ?? 0,
-                      roots: Dictionary(entry.row.word.map { (String($0), roots[String($0)]!) }, uniquingKeysWith: { a, _ in a }))
+                      roots: roots)
             }, firstCandidateChanges: changes, skipped: skipped)
         var rankedRows: [DictionaryRow] = []
         for code in after.keys.sorted() {

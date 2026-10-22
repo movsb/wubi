@@ -23,5 +23,11 @@ xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
   -target "$(uname -m)-apple-macosx13.0" -framework Cocoa -framework InputMethodKit \
   macos/CandidateIndex.swift macos/DictionaryRow.swift macos/Dictionary.swift macos/PinyinDictionary.swift macos/DictionaryMerger.swift macos/DictionaryStore.swift macos/Punctuation.swift macos/InputEngine.swift macos/KeyEvent.swift macos/InputController.swift macos/main.swift \
   -o "$app/Contents/MacOS/Wubi"
+xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
+  -target "$(uname -m)-apple-macosx13.0" \
+  macos/CandidateIndex.swift macos/DictionaryRow.swift macos/Dictionary.swift \
+  macos/PinyinDictionary.swift macos/DictionaryMerger.swift macos/DictionaryStore.swift \
+  scripts/dictionary-builder/main.swift -o "$app/Contents/MacOS/WubiDictionaryBuilder"
+codesign --force --sign - "$app/Contents/MacOS/WubiDictionaryBuilder"
 codesign --force --sign - "$app"
 echo "构建完成：$app"

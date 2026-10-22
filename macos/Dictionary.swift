@@ -1,9 +1,15 @@
 import Foundation
 
 struct WubiDictionary {
-    private var entries: [String: [String]] = [:]
     private(set) var count = 0
     private var prefixIndex = CandidateIndex(items: [])
+
+    init(indexURL: URL, count: Int) throws {
+        self.count = count
+        prefixIndex = try CandidateIndex(mappedURL: indexURL)
+    }
+
+    func writeIndex(to url: URL) throws { try prefixIndex.write(to: url) }
 
     init(urls: [URL]) throws {
         let rows = try urls.sorted { $0.lastPathComponent < $1.lastPathComponent }.flatMap { try DictionaryRow.read($0) }
@@ -23,7 +29,6 @@ struct WubiDictionary {
         var items: [CandidateIndex.Item] = []
         for code in grouped.keys.sorted() {
             let values = grouped[code]!.sorted { $0.weight == $1.weight ? $0.order < $1.order : $0.weight > $1.weight }
-            entries[code] = values.map(\.text)
             for value in values {
                 items.append(.init(text: value.text, code: code,
                     weight: completionFrequencies.isEmpty ? value.weight : completionFrequencies[value.text] ?? 0,
@@ -33,7 +38,7 @@ struct WubiDictionary {
         prefixIndex = CandidateIndex(items: items)
     }
 
-    func lookup(_ code: String) -> [String] { entries[code.lowercased()] ?? [] }
+    func lookup(_ code: String) -> [String] { prefixIndex.lookup(code.lowercased()) }
 
     func candidates(prefix: String) -> [InputCandidate] {
         guard prefix.utf8.allSatisfy({ (97...122).contains($0) }) else { return [] }

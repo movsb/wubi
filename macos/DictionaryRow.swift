@@ -6,19 +6,31 @@ struct DictionaryRow {
     let weight: Double
 
     static func read(_ url: URL) throws -> [DictionaryRow] {
-        let contents = try String(contentsOf: url, encoding: .utf8)
+        var contents = try String(contentsOf: url, encoding: .utf8)
         var started = false
         var rows: [DictionaryRow] = []
-        for line in contents.components(separatedBy: .newlines) {
-            if !started {
-                if line.trimmingCharacters(in: .whitespaces) == "..." { started = true }
-                continue
+        // Scan without materializing an array containing every line in the source dictionary.
+        contents.withUTF8 { bytes in
+            func consume(_ start: Int, _ end: Int) {
+                guard start < end else { return }
+                if !started {
+                    let line = String(decoding: bytes[start..<end], as: UTF8.self)
+                    if line.trimmingCharacters(in: .whitespaces) == "..." { started = true }
+                    return
+                }
+                guard bytes[start] != 35, bytes[start] != 32 else { return }
+                let line = String(decoding: bytes[start..<end], as: UTF8.self)
+                let fields = line.split(separator: "\t", omittingEmptySubsequences: false)
+                guard fields.count >= 2, !fields[0].isEmpty else { return }
+                let weight = fields.count > 2 ? Double(fields[2].filter { $0 != "%" }) ?? 0 : 0
+                rows.append(DictionaryRow(word: String(fields[0]), code: String(fields[1]), weight: weight.isFinite ? weight : 0))
             }
-            if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(" ") { continue }
-            let fields = line.components(separatedBy: "\t")
-            guard fields.count >= 2, !fields[0].isEmpty else { continue }
-            let weight = fields.count > 2 ? Double(fields[2].replacingOccurrences(of: "%", with: "")) ?? 0 : 0
-            rows.append(DictionaryRow(word: fields[0], code: fields[1], weight: weight.isFinite ? weight : 0))
+            var start = 0
+            for offset in bytes.indices where bytes[offset] == 10 || bytes[offset] == 13 {
+                consume(start, offset)
+                start = offset + 1
+            }
+            consume(start, bytes.count)
         }
         guard started else {
             throw NSError(domain: "Wubi.Dictionary", code: 1, userInfo: [
