@@ -10,6 +10,7 @@ class WubiInputController: IMKInputController {
     }()
     private var code = ""
     private var page = 0
+    private var punctuation = ChinesePunctuation()
     private var choices: [String] { Self.dictionary.lookup(code) }
     private var panel: NSPanel?
     private let label = NSTextField(labelWithString: "")
@@ -86,6 +87,11 @@ class WubiInputController: IMKInputController {
             refresh(client)
             return true
         }
+        if !event.modifierFlags.contains(.capsLock), let symbol = punctuation.convert(text) {
+            commitComposition(sender)
+            insert(symbol, client)
+            return true
+        }
         guard !code.isEmpty else { return false }
         switch event.keyCode {
         case 53: clear(client)
@@ -118,6 +124,7 @@ class WubiInputController: IMKInputController {
 
     override func deactivateServer(_ sender: Any!) {
         commitComposition(sender)
+        punctuation.reset()
         panel?.orderOut(nil)
         super.deactivateServer(sender)
     }

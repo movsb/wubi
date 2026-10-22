@@ -28,7 +28,20 @@
 | 四码唯一候选 | 保留候选，按空格或数字选词上屏 |
 | 已输入四码后继续输入字母 | 上屏首选词，开始下一个编码 |
 
-候选窗目前支持键盘选词，不支持鼠标点击。大写字母与常用系统快捷键交给应用处理。标点使用原键盘字符；暂未实现中文标点、拼音反查、学习调频及设置面板。候选只匹配完整编码，保留原程序行为。
+候选窗目前支持键盘选词，不支持鼠标点击。大写字母与常用系统快捷键交给应用处理。暂未实现拼音反查、学习调频及设置面板。候选只匹配完整编码，保留原程序行为。
+
+默认输入中文标点；存在未上屏编码时，先上屏当前页首选词，再输入标点。Caps Lock 开启时保留英文标点，Command、Control、Option 快捷键不转换。
+
+| 键盘字符 | 中文标点 |
+| --- | --- |
+| `, . ? ! : ;` | `，。？！：；` |
+| `\` | `、` |
+| `( ) [ ] < >` | `（）【】《》` |
+| 双引号 / 单引号 | 交替输入 `“”` / `‘’`，切换应用或输入法后重置 |
+| `^` / `_` | `……` / `——` |
+| `$` / `~` / 反引号 | `￥` / `～` / `·` |
+
+`-` 和 `=` 在有候选时仍用于翻页，其余字符保留原样。输入小数、网址等英文内容时可开启 Caps Lock 或切换英文输入源。
 
 日常修改代码或词库后，运行以下命令更新，无需注销：
 
@@ -46,7 +59,7 @@
 
 ```bash
 mkdir -p build/module-cache
-xcrun swiftc -module-cache-path "$PWD/build/module-cache" macos/Dictionary.swift tests/main.swift -o build/dictionary-tests
+xcrun swiftc -module-cache-path "$PWD/build/module-cache" macos/Dictionary.swift macos/Punctuation.swift tests/main.swift -o build/dictionary-tests
 ./build/dictionary-tests
 ```
 
