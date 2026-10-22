@@ -246,7 +246,6 @@ class WubiInputController: IMKInputController {
     private func present(_ text: NSAttributedString, client: IMKTextInput, contentWidth: CGFloat? = nil) {
         if panel == nil {
             let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            window.level = .popUpMenu
             window.hasShadow = true
             window.isOpaque = false
             window.backgroundColor = .clear
@@ -284,6 +283,9 @@ class WubiInputController: IMKInputController {
         let x = min(max(rect.minX, bounds.minX), max(bounds.minX, bounds.maxX - width))
         let y = rect.minY - height - 4 < bounds.minY ? min(rect.maxY + 4, bounds.maxY - height) : rect.minY - height - 4
         panel?.setFrame(NSRect(x: x, y: max(bounds.minY, y), width: width, height: height), display: true)
+        // Input clients such as launchers can sit above the normal popup level.
+        // Recompute for each presentation so switching clients also lowers it again.
+        panel?.level = NSWindow.Level(rawValue: max(NSWindow.Level.popUpMenu.rawValue, Int(client.windowLevel()) + 1))
         panel?.orderFrontRegardless()
     }
 }
