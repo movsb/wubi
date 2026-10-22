@@ -36,19 +36,28 @@ struct InputEngine {
     private var punctuation = ChinesePunctuation()
     private let lookup: (String) -> [String]
     private let pinyinLookup: (String) -> [String]
+    private let wubiCandidates: ((String) -> [InputCandidate])?
+    private let pinyinCandidates: ((String) -> [InputCandidate])?
 
-    init(lookup: @escaping (String) -> [String], pinyinLookup: @escaping (String) -> [String] = { _ in [] }) {
+    init(lookup: @escaping (String) -> [String], pinyinLookup: @escaping (String) -> [String] = { _ in [] },
+         wubiCandidates: ((String) -> [InputCandidate])? = nil,
+         pinyinCandidates: ((String) -> [InputCandidate])? = nil) {
         self.lookup = lookup
         self.pinyinLookup = pinyinLookup
+        self.wubiCandidates = wubiCandidates
+        self.pinyinCandidates = pinyinCandidates
     }
 
-    var choices: [String] {
+    var choices: [String] { candidates.map(\.text) }
+
+    var candidates: [InputCandidate] {
+        guard !englishMode else { return [] }
         if pinyinMode {
             guard code.utf8.allSatisfy({ (97...122).contains($0) || $0 == 39 }) else { return [] }
-            return pinyinLookup(code)
+            return pinyinCandidates?(code) ?? pinyinLookup(code).map { InputCandidate(text: $0, remainingCode: "") }
         }
         guard code.utf8.allSatisfy({ (97...122).contains($0) }) else { return [] }
-        return lookup(code)
+        return wubiCandidates?(code) ?? lookup(code).map { InputCandidate(text: $0, remainingCode: "") }
     }
 
     mutating func handle(_ key: InputKey) -> InputResult {

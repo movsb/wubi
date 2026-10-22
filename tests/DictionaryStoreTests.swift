@@ -64,12 +64,14 @@ func runDictionaryStoreTests() throws {
           && FileManager.default.fileExists(atPath: data.appendingPathComponent("Dictionaries/Pinyin").path), "startup creates user dictionary directories")
     check(FileManager.default.fileExists(atPath: data.appendingPathComponent("dictionary-merge-report.md").path), "runtime report is written to user data directory")
     var engine = InputEngine(lookup: { store.wubi.lookup($0) }, pinyinLookup: { store.pinyin.lookup($0) })
+    check(store.wubi.candidates(prefix: "zzz").isEmpty, "empty prefix result can be cached before user dictionary update")
     let userWubi = data.appendingPathComponent("Dictionaries/Wubi/custom.dict.yaml")
     let userPinyin = data.appendingPathComponent("Dictionaries/Pinyin/custom.dict.yaml")
     try write("私人词\tzzzz\t100\n", to: userWubi)
     try write("甲乙丙\tjia yi bing\t100\n", to: userPinyin)
     check(store.reload(), "user dictionary reload succeeds without rebuilding")
     check(store.wubi.lookup("zzzz") == ["私人词"], "custom Wubi word loads at runtime")
+    check(store.wubi.candidates(prefix: "zzz") == [.init(text: "私人词", remainingCode: "z")], "runtime reload invalidates old prefix cache")
     check(store.pinyin.lookup("jiayibing") == ["甲乙丙"], "custom Pinyin word loads at runtime")
     check(store.wubi.lookup("aeij") == ["甲乙丙"], "custom Pinyin word also receives a Wubi code")
     for char in "zzzz" { _ = engine.handle(InputKey(text: String(char))) }
@@ -78,6 +80,7 @@ func runDictionaryStoreTests() throws {
     try FileManager.default.removeItem(at: userWubi)
     try FileManager.default.removeItem(at: userPinyin)
     check(store.reload() && store.wubi.lookup("zzzz").isEmpty && store.wubi.lookup("aeij").isEmpty, "removing user dictionaries takes effect on reload")
+    check(store.wubi.candidates(prefix: "zzz").isEmpty, "removed user word disappears from prefix candidates")
 
     let settings = data.appendingPathComponent("settings.json")
     try "{\"mergePinyinIntoWubi\":false}".write(to: settings, atomically: true, encoding: .utf8)

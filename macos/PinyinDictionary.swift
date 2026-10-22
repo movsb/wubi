@@ -11,6 +11,8 @@ struct PinyinDictionary {
     private(set) var count = 0
     private(set) var frequencies: [String: Double] = [:]
     private(set) var wordsInOrder: [String] = []
+    private var compactIndex = CandidateIndex(items: [])
+    private var syllableIndex = CandidateIndex(items: [])
 
     init(url: URL) throws {
         self.init(rows: try DictionaryRow.read(url))
@@ -33,6 +35,16 @@ struct PinyinDictionary {
         for key in Array(entries.keys) {
             entries[key]?.sort { $0.weight == $1.weight ? $0.order < $1.order : $0.weight > $1.weight }
         }
+        var compact: [CandidateIndex.Item] = []
+        var syllables: [CandidateIndex.Item] = []
+        for key in entries.keys.sorted() {
+            for entry in entries[key]! {
+                compact.append(.init(text: entry.text, code: key, weight: entry.weight, order: compact.count))
+                syllables.append(.init(text: entry.text, code: entry.spelling, weight: entry.weight, order: syllables.count))
+            }
+        }
+        compactIndex = CandidateIndex(items: compact)
+        syllableIndex = CandidateIndex(items: syllables)
     }
 
     func lookup(_ code: String) -> [String] {
@@ -43,5 +55,9 @@ struct PinyinDictionary {
             if code.contains("'"), entry.spelling != code { return nil }
             return seen.insert(entry.text).inserted ? entry.text : nil
         }
+    }
+    func candidates(prefix: String) -> [InputCandidate] {
+        guard prefix.utf8.allSatisfy({ (97...122).contains($0) || $0 == 39 }) else { return [] }
+        return prefix.contains("'") ? syllableIndex.candidates(prefix: prefix) : compactIndex.candidates(prefix: prefix)
     }
 }

@@ -33,10 +33,11 @@ private final class CandidateBackgroundView: NSView {
 class WubiInputController: IMKInputController {
     private lazy var engine = InputEngine(
         lookup: { DictionaryStore.shared.wubi.lookup($0) },
-        pinyinLookup: { DictionaryStore.shared.pinyin.lookup($0) })
+        pinyinLookup: { DictionaryStore.shared.pinyin.lookup($0) },
+        wubiCandidates: { DictionaryStore.shared.wubi.candidates(prefix: $0) },
+        pinyinCandidates: { DictionaryStore.shared.pinyin.candidates(prefix: $0) })
     private var code: String { engine.code }
     private var page: Int { engine.page }
-    private var choices: [String] { engine.choices }
     private var panel: NSPanel?
     private var hintDismissal: DispatchWorkItem?
     private let label = NSTextField(labelWithString: "")
@@ -167,7 +168,7 @@ class WubiInputController: IMKInputController {
     private func refresh(_ client: IMKTextInput) {
         client.setMarkedText(code, selectionRange: NSRange(location: code.utf16.count, length: 0), replacementRange: missingRange)
         guard !code.isEmpty else { panel?.orderOut(nil); return }
-        let values = choices
+        let values = engine.candidates
         guard !values.isEmpty else { panel?.orderOut(nil); return }
         let start = min(page * InputEngine.pageSize, values.count)
         let visible = values.dropFirst(start).prefix(InputEngine.pageSize)
@@ -187,15 +188,27 @@ class WubiInputController: IMKInputController {
             .paragraphStyle: paragraphStyle,
             .baselineOffset: (wordFont.ascender + wordFont.descender - numberFont.ascender - numberFont.descender) / 2,
         ]
-        for (index, word) in visible.enumerated() {
+        var leftWidth: CGFloat = 0
+        var remainingWidth: CGFloat = 0
+        for (index, candidate) in visible.enumerated() {
             if index > 0 { text.append(NSAttributedString(string: "\n", attributes: wordAttributes)) }
-            text.append(NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes))
+            let number = NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes)
+            text.append(number)
             var attributes = wordAttributes
             attributes[.foregroundColor] = start + index == engine.selectedIndex
                 ? CandidateColors.primary : CandidateColors.secondary
-            text.append(NSAttributedString(string: word, attributes: attributes))
+            let word = NSAttributedString(string: candidate.text, attributes: attributes)
+            text.append(word)
+            leftWidth = max(leftWidth, number.size().width + word.size().width)
+            if !candidate.remainingCode.isEmpty {
+                let remaining = NSAttributedString(string: candidate.remainingCode, attributes: numberAttributes)
+                text.append(NSAttributedString(string: "\t", attributes: numberAttributes))
+                text.append(remaining)
+                remainingWidth = max(remainingWidth, remaining.size().width)
+            }
         }
-        present(text, client: client)
+        let contentWidth = ceil(leftWidth + (remainingWidth > 0 ? 12 + remainingWidth : 0))
+        present(text, client: client, contentWidth: contentWidth)
     }
 
     private func dismissQuoteHint() {
@@ -219,7 +232,7 @@ class WubiInputController: IMKInputController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: dismissal)
     }
 
-    private func present(_ text: NSAttributedString, client: IMKTextInput) {
+    private func present(_ text: NSAttributedString, client: IMKTextInput, contentWidth: CGFloat? = nil) {
         if panel == nil {
             let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.level = .popUpMenu
@@ -237,15 +250,22 @@ class WubiInputController: IMKInputController {
             window.contentView?.addSubview(label)
             panel = window
         }
-        label.attributedStringValue = text
         var rect = NSRect.zero
         _ = client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
         let screen = NSScreen.screens.first { $0.frame.intersects(rect) } ?? NSScreen.main
         let bounds = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         // Measure the current page, independent of the previous label frame.
         // Include the label's internal inset in addition to the window padding.
-        let width = min(bounds.width, ceil(text.size().width) + 16)
-        let measured = text.boundingRect(
+        let width = min(bounds.width, ceil(contentWidth ?? text.size().width) + 16)
+        let rendered = NSMutableAttributedString(attributedString: text)
+        if contentWidth != nil, text.length > 0 {
+            let style = (text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
+                ?? NSMutableParagraphStyle()
+            style.tabStops = [NSTextTab(textAlignment: .right, location: max(1, width - 16), options: [:])]
+            rendered.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: rendered.length))
+        }
+        label.attributedStringValue = rendered
+        let measured = rendered.boundingRect(
             with: NSSize(width: max(1, width - 16), height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading])
         let height = ceil(measured.height) + 8

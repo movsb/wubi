@@ -138,7 +138,7 @@ struct DictionaryMerger {
                 rankedRows.append(DictionaryRow(word: entry.row.word, code: code, weight: Double(values.count - rank)))
             }
         }
-        return Result(dictionary: WubiDictionary(rows: rankedRows), report: report)
+        return Result(dictionary: WubiDictionary(rows: rankedRows, completionFrequencies: pinyin.frequencies), report: report)
     }
 
     private static func isHanzi(_ text: String) -> Bool {

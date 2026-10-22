@@ -7,10 +7,13 @@ struct Session {
     var hints: [String] = []
     var modeHints: [String] = []
 
-    init(pinyinLookup: @escaping (String) -> [String] = { _ in [] }) {
+    init(pinyinLookup: @escaping (String) -> [String] = { _ in [] },
+         wubiCandidates: ((String) -> [InputCandidate])? = nil,
+         pinyinCandidates: ((String) -> [InputCandidate])? = nil) {
         let words = ["q": ["我", "金"], "imde": ["没有"],
                      "a": (1...12).map { "候选\($0)" }]
-        engine = InputEngine(lookup: { words[$0] ?? [] }, pinyinLookup: pinyinLookup)
+        engine = InputEngine(lookup: { words[$0] ?? [] }, pinyinLookup: pinyinLookup,
+                             wubiCandidates: wubiCandidates, pinyinCandidates: pinyinCandidates)
     }
 
     @discardableResult
