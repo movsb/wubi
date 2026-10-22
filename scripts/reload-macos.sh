@@ -11,6 +11,9 @@ fi
 xcrun swiftc -module-cache-path "$PWD/build/module-cache" \
   scripts/input-source.swift -o build/input-source
 original=$(./build/input-source stop)
+# ditto retains files absent from the source bundle. Remove old dictionary copies
+# so switching between original and merged tables preserves the resource seal.
+rm -f "$destination/Contents/Resources/"*.dict.yaml
 ditto build/Wubi.app "$destination"
 codesign --verify --strict "$destination"
 open -g "$destination"

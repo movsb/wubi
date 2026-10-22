@@ -9,26 +9,25 @@ struct PinyinDictionary {
     }
     private var entries: [String: [Entry]] = [:]
     private(set) var count = 0
+    private(set) var frequencies: [String: Double] = [:]
+    private(set) var wordsInOrder: [String] = []
 
     init(url: URL) throws {
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        var started = false
+        self.init(rows: try DictionaryRow.read(url))
+    }
+
+    init(rows: [DictionaryRow]) {
         var seen = Set<String>()
-        for line in contents.components(separatedBy: .newlines) {
-            if !started {
-                if line.trimmingCharacters(in: .whitespaces) == "..." { started = true }
-                continue
-            }
-            if line.isEmpty || line.hasPrefix("#") || line.hasPrefix(" ") { continue }
-            let fields = line.components(separatedBy: "\t")
-            guard fields.count >= 2, !fields[0].isEmpty else { continue }
-            let syllables = fields[1].split(whereSeparator: { $0 == " " || $0 == "'" })
+        for row in rows {
+            guard !row.word.isEmpty else { continue }
+            let syllables = row.code.split(whereSeparator: { $0 == " " || $0 == "'" })
             guard !syllables.isEmpty, syllables.allSatisfy({ $0.utf8.allSatisfy { (97...122).contains($0) } }) else { continue }
             let spelling = syllables.joined(separator: "'")
-            guard seen.insert(fields[0] + "\t" + spelling).inserted else { continue }
-            let weight = fields.count > 2 ? Double(fields[2]) ?? 0 : 0
+            if frequencies[row.word] == nil { wordsInOrder.append(row.word) }
+            frequencies[row.word] = max(row.weight, frequencies[row.word] ?? 0)
+            guard seen.insert(row.word + "\t" + spelling).inserted else { continue }
             entries[syllables.joined(), default: []].append(Entry(
-                text: fields[0], spelling: spelling, weight: weight, order: count))
+                text: row.word, spelling: spelling, weight: row.weight, order: count))
             count += 1
         }
         for key in Array(entries.keys) {

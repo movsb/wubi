@@ -31,20 +31,9 @@ private final class CandidateBackgroundView: NSView {
 
 @objc(WubiInputController)
 class WubiInputController: IMKInputController {
-    private static let dictionary: WubiDictionary = {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: Bundle.main.resourceURL!, includingPropertiesForKeys: nil)) ?? []
-        do { return try WubiDictionary(urls: urls.filter {
-            $0.lastPathComponent.hasSuffix(".dict.yaml") && $0.lastPathComponent != "pinyin_simp.dict.yaml"
-        }) }
-        catch { NSLog("Wubi dictionary error: %@", String(describing: error)); return try! WubiDictionary(urls: []) }
-    }()
-    private static let pinyinDictionary: PinyinDictionary? = {
-        guard let url = Bundle.main.url(forResource: "pinyin_simp.dict", withExtension: "yaml") else { return nil }
-        do { return try PinyinDictionary(url: url) }
-        catch { NSLog("Pinyin dictionary error: %@", String(describing: error)); return nil }
-    }()
-    private lazy var engine = InputEngine(lookup: Self.dictionary.lookup,
-        pinyinLookup: { Self.pinyinDictionary?.lookup($0) ?? [] })
+    private lazy var engine = InputEngine(
+        lookup: { DictionaryStore.shared.wubi.lookup($0) },
+        pinyinLookup: { DictionaryStore.shared.pinyin.lookup($0) })
     private var code: String { engine.code }
     private var page: Int { engine.page }
     private var choices: [String] { engine.choices }
@@ -70,7 +59,28 @@ class WubiInputController: IMKInputController {
         item.isEnabled = reloadScript != nil && Self.reloadProcess == nil
         item.toolTip = "从本机源码构建并重启五笔，无需注销"
         menu.addItem(item)
+        let reload = NSMenuItem(title: "重新加载词库", action: #selector(reloadDictionaries(_:)), keyEquivalent: "")
+        reload.target = self
+        menu.addItem(reload)
+        let open = NSMenuItem(title: "打开用户词库目录", action: #selector(openDictionaryDirectory(_:)), keyEquivalent: "")
+        open.target = self
+        menu.addItem(open)
         return menu
+    }
+
+    @objc private func reloadDictionaries(_ sender: Any?) {
+        let currentClient: IMKTextInput? = client()
+        if let currentClient { commitComposition(currentClient) }
+        let success = DictionaryStore.shared.reload()
+        if let currentClient {
+            let message = !success ? "词库加载失败，保留旧词库" :
+                (DictionaryStore.shared.issues.isEmpty ? "词库已更新" : "词库已更新，部分文件有误")
+            showQuoteHint(message, client: currentClient)
+        }
+    }
+
+    @objc private func openDictionaryDirectory(_ sender: Any?) {
+        NSWorkspace.shared.open(DictionaryStore.shared.dataDirectory.appendingPathComponent("Dictionaries"))
     }
 
     @objc private func rebuildAndReload(_ sender: Any?) {
