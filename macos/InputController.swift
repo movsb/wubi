@@ -139,14 +139,13 @@ class WubiInputController: IMKInputController {
             .foregroundColor: NSColor.secondaryLabelColor,
             .baselineOffset: (wordFont.ascender + wordFont.descender - numberFont.ascender - numberFont.descender) / 2,
         ]
-        if values.isEmpty {
-            text.append(NSAttributedString(string: "无候选词 · 回车输入编码", attributes: wordAttributes))
-        } else {
-            for (index, word) in visible.enumerated() {
-                if index > 0 { text.append(NSAttributedString(string: "\n", attributes: wordAttributes)) }
-                text.append(NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes))
-                text.append(NSAttributedString(string: word, attributes: wordAttributes))
-            }
+        for (index, word) in visible.enumerated() {
+            if index > 0 { text.append(NSAttributedString(string: "\n", attributes: wordAttributes)) }
+            text.append(NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes))
+            var attributes = wordAttributes
+            attributes[.foregroundColor] = start + index == engine.selectedIndex
+                ? NSColor.labelColor : NSColor.secondaryLabelColor
+            text.append(NSAttributedString(string: word, attributes: attributes))
         }
         label.attributedStringValue = text
         var rect = NSRect.zero

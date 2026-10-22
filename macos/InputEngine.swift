@@ -18,7 +18,8 @@ struct InputResult {
 
 struct InputEngine {
     private(set) var code = ""
-    private(set) var page = 0
+    private(set) var selectedIndex = 0
+    var page: Int { selectedIndex / 9 }
     private var punctuation = ChinesePunctuation()
     private let lookup: (String) -> [String]
 
@@ -35,13 +36,13 @@ struct InputEngine {
         if text.utf8.count == 1, let byte = text.utf8.first,
            (97...122).contains(byte) || (65...90).contains(byte), !key.capsLock {
             code += text
-            page = 0
+            selectedIndex = 0
             return refresh()
         }
         if !code.isEmpty, choices.isEmpty, text.utf8.count == 1,
            let byte = text.utf8.first, (33...126).contains(byte) {
             code += text
-            page = 0
+            selectedIndex = 0
             return refresh()
         }
         if !key.capsLock, let symbol = punctuation.convert(text) {
@@ -52,17 +53,21 @@ struct InputEngine {
         guard !code.isEmpty else { return InputResult(handled: false) }
         switch key.code {
         case 53:
-            code = ""; page = 0
+            code = ""; selectedIndex = 0
         case 51:
-            code.removeLast(); page = 0
+            code.removeLast(); selectedIndex = 0
         case 36, 76:
             return InputResult(handled: true, effects: [insert(code)])
         case 49:
             return InputResult(handled: true, effects: commit())
-        case 123, 126, 116:
-            page = max(0, page - 1)
-        case 124, 125, 121:
-            page = min(max(0, (choices.count - 1) / 9), page + 1)
+        case 126:
+            selectedIndex = max(0, selectedIndex - 1)
+        case 125:
+            selectedIndex = min(max(0, choices.count - 1), selectedIndex + 1)
+        case 123, 116:
+            selectPage(page - 1)
+        case 124, 121:
+            selectPage(page + 1)
         default:
             if let digit = Int(text), (1...9).contains(digit) {
                 let index = page * 9 + digit - 1
@@ -71,7 +76,7 @@ struct InputEngine {
                 }
                 return InputResult(handled: true)
             } else if text == "-" || text == "=" {
-                page = min(max(0, (choices.count - 1) / 9), max(0, page + (text == "=" ? 1 : -1)))
+                selectPage(page + (text == "=" ? 1 : -1))
             } else {
                 return InputResult(handled: false, effects: commit())
             }
@@ -82,7 +87,7 @@ struct InputEngine {
     mutating func commit() -> [InputEffect] {
         guard !code.isEmpty else { return [] }
         let values = choices
-        return [insert(values.isEmpty ? code : values[min(page * 9, values.count - 1)])]
+        return [insert(values.isEmpty ? code : values[min(selectedIndex, values.count - 1)])]
     }
 
     mutating func deactivate() -> [InputEffect] {
@@ -91,10 +96,15 @@ struct InputEngine {
         return effects
     }
 
+    private mutating func selectPage(_ requested: Int) {
+        let target = min(max(0, (choices.count - 1) / 9), max(0, requested))
+        if target != page { selectedIndex = target * 9 }
+    }
+
     private func refresh() -> InputResult { InputResult(handled: true, effects: [.refresh]) }
 
     private mutating func insert(_ text: String) -> InputEffect {
-        code = ""; page = 0
+        code = ""; selectedIndex = 0
         return .insert(text)
     }
 }
