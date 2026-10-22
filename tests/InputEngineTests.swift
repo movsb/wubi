@@ -4,6 +4,7 @@ private struct Session {
     var engine: InputEngine
     var output = ""
     var marked = ""
+    var hints: [String] = []
 
     init() {
         let words = ["q": ["我", "金"], "imde": ["没有"],
@@ -35,6 +36,7 @@ private struct Session {
             switch effect {
             case .insert(let text): output += text; marked = ""
             case .refresh: marked = engine.code
+            case .quoteHint(let text): hints.append(text)
             }
         }
     }
@@ -219,5 +221,28 @@ func runInputEngineTests() {
     session = Session()
     check(!session.key("", code: 125).handled && !session.key("", code: 126).handled,
           "Up/Down with empty preedit pass through")
-    print("PASS: preedit, mixed input, selection, paging, punctuation and lifecycle regressions")
+    session = Session()
+    session.key("\"")
+    check(session.output == "“" && session.hints == ["左"], "opening double quote emits matching hint")
+    session.key("\"")
+    check(session.output == "“”" && session.hints.last == "右", "closing double quote emits matching hint")
+    session.key("'")
+    check(session.hints.last == "左", "opening single quote hint")
+    session.key("'")
+    check(session.hints.last == "右" && session.hints.count == 4, "closing single quote hint")
+    session.key(",")
+    check(session.hints.count == 4, "ordinary punctuation has no quote hint")
+    session.key("\"", capsLock: true)
+    check(session.hints.count == 4 && session.output.hasSuffix("\""), "ASCII quote has no Chinese quote hint")
+    session.type("hello")
+    session.key("'")
+    check(session.marked == "hello'" && session.hints.count == 4, "English apostrophe in preedit has no quote hint")
+
+    session = Session()
+    session.type("q")
+    let quote = session.key("\"")
+    check(quote.effects == [.insert("我"), .insert("“"), .quoteHint("左")],
+          "hint follows Chinese candidate and actual quote insertion")
+    check(session.output == "我“" && session.marked.isEmpty, "hint never inserts explanatory text into document")
+    print("PASS: preedit, mixed input, selection, paging, punctuation and quote hint regressions")
 }

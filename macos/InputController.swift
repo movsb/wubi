@@ -13,6 +13,7 @@ class WubiInputController: IMKInputController {
     private var page: Int { engine.page }
     private var choices: [String] { engine.choices }
     private var panel: NSPanel?
+    private var hintDismissal: DispatchWorkItem?
     private let label = NSTextField(labelWithString: "")
     private let missingRange = NSRange(location: NSNotFound, length: 0)
     private static var reloadProcess: Process?
@@ -75,6 +76,7 @@ class WubiInputController: IMKInputController {
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         guard let event, let client = sender as? IMKTextInput, event.type == .keyDown else { return false }
+        dismissQuoteHint()
         let result = engine.handle(InputKey(
             text: event.characters ?? "", code: event.keyCode,
             capsLock: event.modifierFlags.contains(.capsLock),
@@ -85,10 +87,12 @@ class WubiInputController: IMKInputController {
 
     override func commitComposition(_ sender: Any!) {
         guard let client = sender as? IMKTextInput else { return }
+        dismissQuoteHint()
         apply(engine.commit(), to: client)
     }
 
     override func deactivateServer(_ sender: Any!) {
+        dismissQuoteHint()
         let effects = engine.deactivate()
         if let client = sender as? IMKTextInput { apply(effects, to: client) }
         panel?.orderOut(nil)
@@ -103,6 +107,8 @@ class WubiInputController: IMKInputController {
                 panel?.orderOut(nil)
             case .refresh:
                 refresh(client)
+            case .quoteHint(let text):
+                showQuoteHint(text, client: client)
             }
         }
     }
@@ -110,19 +116,6 @@ class WubiInputController: IMKInputController {
     private func refresh(_ client: IMKTextInput) {
         client.setMarkedText(code, selectionRange: NSRange(location: code.utf16.count, length: 0), replacementRange: missingRange)
         guard !code.isEmpty else { panel?.orderOut(nil); return }
-        if panel == nil {
-            let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            window.level = .popUpMenu
-            window.hasShadow = true
-            window.backgroundColor = .windowBackgroundColor
-            window.isFloatingPanel = true
-            window.hidesOnDeactivate = false
-            window.ignoresMouseEvents = true
-            label.font = .systemFont(ofSize: 13)
-            label.maximumNumberOfLines = 0
-            window.contentView?.addSubview(label)
-            panel = window
-        }
         let values = choices
         guard !values.isEmpty else { panel?.orderOut(nil); return }
         let start = min(page * 9, values.count)
@@ -146,6 +139,44 @@ class WubiInputController: IMKInputController {
             attributes[.foregroundColor] = start + index == engine.selectedIndex
                 ? NSColor.labelColor : NSColor.secondaryLabelColor
             text.append(NSAttributedString(string: word, attributes: attributes))
+        }
+        present(text, client: client)
+    }
+
+    private func dismissQuoteHint() {
+        guard let dismissal = hintDismissal else { return }
+        dismissal.cancel()
+        hintDismissal = nil
+        panel?.orderOut(nil)
+    }
+
+    private func showQuoteHint(_ message: String, client: IMKTextInput) {
+        dismissQuoteHint()
+        present(NSAttributedString(string: message, attributes: [
+            .font: NSFont.systemFont(ofSize: 13),
+            .foregroundColor: NSColor.labelColor,
+        ]), client: client)
+        let dismissal = DispatchWorkItem { [weak self] in
+            self?.panel?.orderOut(nil)
+            self?.hintDismissal = nil
+        }
+        hintDismissal = dismissal
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: dismissal)
+    }
+
+    private func present(_ text: NSAttributedString, client: IMKTextInput) {
+        if panel == nil {
+            let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+            window.level = .popUpMenu
+            window.hasShadow = true
+            window.backgroundColor = .windowBackgroundColor
+            window.isFloatingPanel = true
+            window.hidesOnDeactivate = false
+            window.ignoresMouseEvents = true
+            label.font = .systemFont(ofSize: 13)
+            label.maximumNumberOfLines = 0
+            window.contentView?.addSubview(label)
+            panel = window
         }
         label.attributedStringValue = text
         var rect = NSRect.zero

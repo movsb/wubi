@@ -9,6 +9,7 @@ struct InputKey {
 enum InputEffect: Equatable {
     case insert(String)
     case refresh
+    case quoteHint(String)
 }
 
 struct InputResult {
@@ -48,6 +49,9 @@ struct InputEngine {
         if !key.capsLock, let symbol = punctuation.convert(text) {
             var effects = commit()
             effects.append(insert(symbol))
+            if let hint = ChinesePunctuation.quoteHint(for: symbol) {
+                effects.append(.quoteHint(hint))
+            }
             return InputResult(handled: true, effects: effects)
         }
         guard !code.isEmpty else { return InputResult(handled: false) }

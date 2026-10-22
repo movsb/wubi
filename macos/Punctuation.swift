@@ -24,4 +24,14 @@ struct ChinesePunctuation {
     }
 
     mutating func reset() { self = Self() }
+
+    static func quoteHint(for symbol: String) -> String? {
+        switch symbol {
+        case "“": return "左"
+        case "”": return "右"
+        case "‘": return "左"
+        case "’": return "右"
+        default: return nil
+        }
+    }
 }
