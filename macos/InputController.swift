@@ -1,6 +1,34 @@
 import Cocoa
 import InputMethodKit
 
+private enum CandidateColors {
+    static let primary = NSColor(name: NSColor.Name("WubiPrimary")) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(calibratedWhite: 0.78, alpha: 1) : .labelColor
+    }
+    static let secondary = NSColor(name: NSColor.Name("WubiSecondary")) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor(calibratedWhite: 0.50, alpha: 1) : .secondaryLabelColor
+    }
+}
+
+private final class CandidateBackgroundView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        // CGColor is a snapshot: resolve it again whenever the system appearance changes.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+        subviews.forEach { $0.needsDisplay = true }
+    }
+}
+
 @objc(WubiInputController)
 class WubiInputController: IMKInputController {
     private static let dictionary: WubiDictionary = {
@@ -125,11 +153,11 @@ class WubiInputController: IMKInputController {
         let numberFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         let wordAttributes: [NSAttributedString.Key: Any] = [
             .font: wordFont,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: CandidateColors.primary,
         ]
         let numberAttributes: [NSAttributedString.Key: Any] = [
             .font: numberFont,
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: CandidateColors.secondary,
             .baselineOffset: (wordFont.ascender + wordFont.descender - numberFont.ascender - numberFont.descender) / 2,
         ]
         for (index, word) in visible.enumerated() {
@@ -137,7 +165,7 @@ class WubiInputController: IMKInputController {
             text.append(NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes))
             var attributes = wordAttributes
             attributes[.foregroundColor] = start + index == engine.selectedIndex
-                ? NSColor.labelColor : NSColor.secondaryLabelColor
+                ? CandidateColors.primary : CandidateColors.secondary
             text.append(NSAttributedString(string: word, attributes: attributes))
         }
         present(text, client: client)
@@ -154,7 +182,7 @@ class WubiInputController: IMKInputController {
         dismissQuoteHint()
         present(NSAttributedString(string: message, attributes: [
             .font: NSFont.systemFont(ofSize: 13),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: CandidateColors.primary,
         ]), client: client)
         let dismissal = DispatchWorkItem { [weak self] in
             self?.panel?.orderOut(nil)
@@ -169,7 +197,12 @@ class WubiInputController: IMKInputController {
             let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.level = .popUpMenu
             window.hasShadow = true
-            window.backgroundColor = .windowBackgroundColor
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.contentView = CandidateBackgroundView(frame: .zero)
+            window.contentView?.wantsLayer = true
+            window.contentView?.layer?.cornerRadius = 6
+            window.contentView?.layer?.masksToBounds = true
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
             window.ignoresMouseEvents = true
