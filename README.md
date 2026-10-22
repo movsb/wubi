@@ -1,6 +1,6 @@
 # WUBI
 
-原来的 Go 命令行查词工具，以及基于 Apple InputMethodKit 的 macOS 原生五笔输入法。
+基于 Swift 和 Apple InputMethodKit 的 macOS 原生五笔输入法。
 
 ## macOS 输入法
 
@@ -41,22 +41,3 @@ xcrun swiftc -module-cache-path "$PWD/build/module-cache" macos/Dictionary.swift
 ```
 
 系统集成需安装后手动验证：在 TextEdit、浏览器输入框中测试 `q` + 空格、`imde`、重码数字选择、翻页、退格、取消、应用切换和 Command 快捷键。编译及词库测试通过并不等同于这些系统输入场景已通过。
-
-## 原来的命令行工具
-
-下载词库后运行 `go run .`。候选顺序保留词库顺序。
-
-```bash
-$ go run main.go 
-Imported 89317 words
-Input: q
-[我 金]
-Input: imde
-[没有]
-Input: qytr
-[勿忘我]
-Input: ihcq
-[小鸡 錃 🐤]
-Input: ugpg
-[新型冠状病毒]
-```
