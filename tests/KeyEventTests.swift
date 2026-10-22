@@ -31,7 +31,7 @@ func runKeyEventTests() {
     check(physicalDown.leftShiftDown && !physicalDown.otherModifier, "device-specific left Shift flags also work")
     _ = engine.handle(physicalDown)
     let chinese = engine.handle(up)
-    check(!engine.englishMode && chinese.handled && chinese.effects == [.modeHint("中")],
+    check(!engine.englishMode && chinese.handled && chinese.effects == [.modeHint("五")],
           "physical Shift tap switches back to Chinese and consumes release")
     let rightDown = InputKey(event: event(.flagsChanged, key: 60, flags: .shift))
     let rightUp = InputKey(event: event(.flagsChanged, key: 60))

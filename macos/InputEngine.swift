@@ -23,6 +23,7 @@ struct InputResult {
 }
 
 struct InputEngine {
+    static let pageSize = 5
     private(set) var code = ""
     private(set) var selectedIndex = 0
     private(set) var englishMode = false
@@ -31,7 +32,7 @@ struct InputEngine {
     private var rightShiftPressed = false
     private var rightShiftTapPending = false
     private var shiftTapPending = false
-    var page: Int { selectedIndex / 9 }
+    var page: Int { selectedIndex / Self.pageSize }
     private var punctuation = ChinesePunctuation()
     private let lookup: (String) -> [String]
     private let pinyinLookup: (String) -> [String]
@@ -103,8 +104,8 @@ struct InputEngine {
             selectedIndex = min(max(0, choices.count - 1), selectedIndex + 1)
         default:
             if let digit = Int(text), (1...9).contains(digit) {
-                let index = page * 9 + digit - 1
-                if choices.indices.contains(index) {
+                let index = page * Self.pageSize + digit - 1
+                if digit <= Self.pageSize && choices.indices.contains(index) {
                     return InputResult(handled: true, effects: [insert(choices[index])])
                 }
                 return InputResult(handled: true)
@@ -147,7 +148,7 @@ struct InputEngine {
                     pinyinMode = englishMode || !pinyinMode
                     englishMode = false
                     punctuation.reset()
-                    effects.append(.modeHint(pinyinMode ? "拼" : "中"))
+                    effects.append(.modeHint(pinyinMode ? "拼" : "五"))
                     return InputResult(handled: true, effects: effects)
                 }
             }
@@ -171,7 +172,7 @@ struct InputEngine {
                 if !code.isEmpty { effects.append(insert(code)) }
                 englishMode.toggle()
                 punctuation.reset()
-                effects.append(.modeHint(englishMode ? "英" : (pinyinMode ? "拼" : "中")))
+                effects.append(.modeHint(englishMode ? "英" : (pinyinMode ? "拼" : "五")))
                 return InputResult(handled: true, effects: effects)
             }
         }
@@ -179,8 +180,8 @@ struct InputEngine {
     }
 
     private mutating func selectPage(_ requested: Int) {
-        let target = min(max(0, (choices.count - 1) / 9), max(0, requested))
-        if target != page { selectedIndex = target * 9 }
+        let target = min(max(0, (choices.count - 1) / Self.pageSize), max(0, requested))
+        if target != page { selectedIndex = target * Self.pageSize }
     }
 
     private func refresh() -> InputResult { InputResult(handled: true, effects: [.refresh]) }

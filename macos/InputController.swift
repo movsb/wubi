@@ -159,18 +159,22 @@ class WubiInputController: IMKInputController {
         guard !code.isEmpty else { panel?.orderOut(nil); return }
         let values = choices
         guard !values.isEmpty else { panel?.orderOut(nil); return }
-        let start = min(page * 9, values.count)
-        let visible = values.dropFirst(start).prefix(9)
+        let start = min(page * InputEngine.pageSize, values.count)
+        let visible = values.dropFirst(start).prefix(InputEngine.pageSize)
         let text = NSMutableAttributedString(string: "")
         let wordFont = NSFont.systemFont(ofSize: 13)
         let numberFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 3
         let wordAttributes: [NSAttributedString.Key: Any] = [
             .font: wordFont,
             .foregroundColor: CandidateColors.primary,
+            .paragraphStyle: paragraphStyle,
         ]
         let numberAttributes: [NSAttributedString.Key: Any] = [
             .font: numberFont,
             .foregroundColor: CandidateColors.secondary,
+            .paragraphStyle: paragraphStyle,
             .baselineOffset: (wordFont.ascender + wordFont.descender - numberFont.ascender - numberFont.descender) / 2,
         ]
         for (index, word) in visible.enumerated() {
@@ -214,7 +218,6 @@ class WubiInputController: IMKInputController {
             window.backgroundColor = .clear
             window.contentView = CandidateBackgroundView(frame: .zero)
             window.contentView?.wantsLayer = true
-            window.contentView?.layer?.cornerRadius = 6
             window.contentView?.layer?.masksToBounds = true
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
