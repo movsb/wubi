@@ -27,6 +27,20 @@ func runDictionaryStoreTests() throws {
             check(false, "invalid plain text must be rejected")
         } catch { check(error.localizedDescription.contains("plain.txt"), "invalid plain text reports filename and format error") }
     }
+    let exclusionSaveURL = temporary.appendingPathComponent("saved-exclusions.txt")
+    try write("# 保留注释\r\n原词 # 已排除", to: exclusionSaveURL)
+    try DictionaryRow.exclude("甲乙", at: exclusionSaveURL)
+    try DictionaryRow.exclude("原词", at: exclusionSaveURL)
+    try DictionaryRow.exclude("甲乙", at: exclusionSaveURL)
+    let savedExclusions = try String(contentsOf: exclusionSaveURL, encoding: .utf8)
+    check(savedExclusions == "# 保留注释\r\n原词 # 已排除\n甲乙\n",
+          "candidate deletion preserves comments, adds a missing newline and avoids duplicate words")
+    for invalid in ["", "词\n语", "词#语", "词\t语"] {
+        do {
+            try DictionaryRow.exclude(invalid, at: exclusionSaveURL)
+            check(false, "invalid exclusion must be rejected")
+        } catch { check(true, "invalid exclusion is rejected") }
+    }
     let lineFixture = temporary.appendingPathComponent("line-endings.txt")
     try "# 注释\r\n甲\tabcd\t12%\r\n乙\tefgh\tNaN\r丙\tijkl\t3".write(to: lineFixture, atomically: true, encoding: .utf8)
     let lineRows = try DictionaryRow.read(lineFixture)
@@ -108,6 +122,14 @@ func runDictionaryStoreTests() throws {
     check(engine.choices == ["甲乙丙"], "existing engine sees refreshed dictionaries through store")
     check(engine.handle(InputKey(text: " ", code: 49)).effects == [.insert("甲乙丙")], "generated runtime word commits through existing engine")
     check(usage.counts["甲乙丙"] == 1, "confirming a user word automatically records usage without a manual weight")
+    var deletionEngine = InputEngine(lookup: { store.wubi.lookup($0) })
+    for char in "aeij" { _ = deletionEngine.handle(InputKey(text: String(char))) }
+    try DictionaryRow.exclude("甲乙丙", at: data.appendingPathComponent("excluded.txt"))
+    check(store.reload(), "candidate deletion reloads the exclusion dictionary")
+    deletionEngine.refreshCandidates()
+    check(deletionEngine.code == "aeij" && deletionEngine.choices.isEmpty && deletionEngine.selectedIndex == 0,
+          "candidate deletion preserves preedit without committing when the final candidate disappears")
+    try FileManager.default.removeItem(at: data.appendingPathComponent("excluded.txt"))
     try FileManager.default.removeItem(at: userPinyin)
     check(store.reload() && store.wubi.lookup("aeij").isEmpty && store.pinyin.lookup("jiayibing").isEmpty, "removing unified user dictionary removes both modes on reload")
     check(store.wubi.candidates(prefix: "aei").isEmpty && store.wubi.reverseLookup("甲乙丙") == nil, "removed user word disappears from prefix and reverse indices")

@@ -29,6 +29,59 @@ private final class CandidateBackgroundView: NSView {
     }
 }
 
+// Use the same text layout for drawing and hit testing, including wrapped candidates.
+private final class CandidateLabel: NSView {
+    static let candidateWord = NSAttributedString.Key("WubiCandidateWord")
+    var onDelete: ((String) -> Void)?
+    private let storage = NSTextStorage()
+    private let layout = NSLayoutManager()
+    private let container = NSTextContainer(size: .zero)
+    var attributedStringValue = NSAttributedString(string: "") {
+        didSet { storage.setAttributedString(attributedStringValue); needsDisplay = true }
+    }
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    private func prepareLayout() {
+        container.containerSize = NSSize(width: max(1, bounds.width - 4), height: .greatestFiniteMagnitude)
+        layout.ensureLayout(for: container)
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        prepareLayout()
+        let glyphs = layout.glyphRange(for: container)
+        layout.drawBackground(forGlyphRange: glyphs, at: NSPoint(x: 2, y: 0))
+        layout.drawGlyphs(forGlyphRange: glyphs, at: NSPoint(x: 2, y: 0))
+    }
+    override func menu(for event: NSEvent) -> NSMenu? {
+        prepareLayout()
+        let point = convert(event.locationInWindow, from: nil)
+        let location = NSPoint(x: point.x - 2, y: point.y)
+        guard storage.length > 0, layout.usedRect(for: container).contains(location) else { return nil }
+        let glyph = layout.glyphIndex(for: location, in: container)
+        guard NSLocationInRange(glyph, layout.glyphRange(for: container)) else { return nil }
+        let character = layout.characterIndexForGlyph(at: glyph)
+        guard let word = storage.attribute(Self.candidateWord, at: character, effectiveRange: nil) as? String else { return nil }
+        let menu = NSMenu()
+        let item = NSMenuItem(title: "删除此词条", action: #selector(deleteCandidate(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = word
+        menu.addItem(item)
+        return menu
+    }
+    @objc private func deleteCandidate(_ sender: NSMenuItem) {
+        guard let word = sender.representedObject as? String else { return }
+        onDelete?(word)
+    }
+}
+
 @objc(WubiInputController)
 class WubiInputController: IMKInputController {
     private lazy var engine = InputEngine(
@@ -43,7 +96,7 @@ class WubiInputController: IMKInputController {
     private static var launchingManualApplication = false
     private var panel: NSPanel?
     private var hintDismissal: DispatchWorkItem?
-    private let label = NSTextField(labelWithString: "")
+    private let label = CandidateLabel(frame: .zero)
     private let missingRange = NSRange(location: NSNotFound, length: 0)
     private static var reloadProcess: Process?
 
@@ -247,6 +300,7 @@ class WubiInputController: IMKInputController {
         var remainingWidth: CGFloat = 0
         for (index, candidate) in visible.enumerated() {
             if index > 0 { text.append(NSAttributedString(string: "\n", attributes: wordAttributes)) }
+            let rowStart = text.length
             let number = NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes)
             text.append(number)
             var attributes = wordAttributes
@@ -264,9 +318,27 @@ class WubiInputController: IMKInputController {
                 text.append(remaining)
                 remainingWidth = max(remainingWidth, remaining.size().width)
             }
+            text.addAttribute(CandidateLabel.candidateWord, value: candidate.text,
+                              range: NSRange(location: rowStart, length: text.length - rowStart))
         }
         let contentWidth = ceil(leftWidth + (remainingWidth > 0 ? 12 + remainingWidth : 0))
         present(text, client: client, contentWidth: contentWidth)
+    }
+
+    private func deleteCandidate(_ word: String) {
+        guard let currentClient: IMKTextInput = client(), !code.isEmpty else { return }
+        do {
+            try DictionaryRow.exclude(word, at: DictionaryStore.shared.dataDirectory.appendingPathComponent("excluded.txt"))
+            guard DictionaryStore.shared.reload() else {
+                throw NSError(domain: "Wubi.Dictionary", code: 4,
+                              userInfo: [NSLocalizedDescriptionKey: "排除词条已保存，但词库重新加载失败"])
+            }
+            engine.refreshCandidates()
+            refresh(currentClient)
+        } catch {
+            NSLog("删除词条失败：%@", error.localizedDescription)
+            showQuoteHint("删除词条失败", client: currentClient)
+        }
     }
 
     private func dismissQuoteHint() {
@@ -301,9 +373,8 @@ class WubiInputController: IMKInputController {
             window.contentView?.layer?.masksToBounds = true
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
-            window.ignoresMouseEvents = true
-            label.font = .systemFont(ofSize: 13)
-            label.maximumNumberOfLines = 0
+            window.ignoresMouseEvents = false
+            label.onDelete = { [weak self] word in self?.deleteCandidate(word) }
             window.contentView?.addSubview(label)
             panel = window
         }

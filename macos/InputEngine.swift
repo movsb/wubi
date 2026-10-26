@@ -147,6 +147,10 @@ struct InputEngine {
         return usage?.rank(values) ?? values
     }
 
+    mutating func refreshCandidates() {
+        selectedIndex = min(selectedIndex, max(0, candidates.count - 1))
+    }
+
     mutating func handle(_ key: InputKey) -> InputResult {
         if key.isModifierChange { return handleModifiers(key) }
         shiftTapPending = false

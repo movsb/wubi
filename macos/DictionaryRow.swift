@@ -15,6 +15,19 @@ struct DictionaryRow {
         })
     }
 
+    static func exclude(_ word: String, at url: URL) throws {
+        guard !word.isEmpty, word.rangeOfCharacter(from: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#"))) == nil else {
+            throw NSError(domain: "Wubi.Dictionary", code: 3,
+                          userInfo: [NSLocalizedDescriptionKey: "无法排除无效词条"])
+        }
+        guard try !readExcludedWords(url).contains(word) else { return }
+        var contents = FileManager.default.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
+        if !contents.isEmpty && !contents.hasSuffix("\n") && !contents.hasSuffix("\r") { contents += "\n" }
+        contents += word + "\n"
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try contents.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     static func readUserText(_ url: URL) throws -> [DictionaryRow] {
         let contents = try String(contentsOf: url, encoding: .utf8)
         var rows: [DictionaryRow] = []
