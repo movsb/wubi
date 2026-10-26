@@ -102,6 +102,25 @@ while !FileManager.default.fileExists(atPath: usageURL.path) && Date() < saveDea
 check(FileManager.default.fileExists(atPath: usageURL.path), "idle timeout saves usage")
 let restoredUsage = WordUsageStore(url: usageURL)
 check(restoredUsage.counts == usage.counts, "usage survives reloading")
+let excludedUsageURL = usageURL.deletingLastPathComponent().appendingPathComponent("excluded.txt")
+try "\u{feff}# 排除\r\n  乙 # 已有词频\r乙\n".write(to: excludedUsageURL, atomically: true, encoding: .utf8)
+usage.record("乙丙")
+let exclusionSaveDeadline = Date().addingTimeInterval(2)
+while WordUsageStore(url: usageURL).counts["乙丙"] == nil && Date() < exclusionSaveDeadline {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+}
+check(WordUsageStore(url: usageURL).counts == ["乙丙": 1], "saving removes excluded historical usage and preserves whole-word nonmatches")
+try Data([0xff]).write(to: excludedUsageURL)
+usage.record("甲")
+RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+check(WordUsageStore(url: usageURL).counts == ["乙丙": 1], "unreadable exclusions preserve the saved usage file")
+try FileManager.default.removeItem(at: excludedUsageURL)
+usage.record("丁")
+let restoredSaveDeadline = Date().addingTimeInterval(2)
+while WordUsageStore(url: usageURL).counts["丁"] == nil && Date() < restoredSaveDeadline {
+    RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+}
+check(WordUsageStore(url: usageURL).counts == usage.counts, "missing exclusion file saves usage normally")
 restoredUsage.record("甲")
 restoredUsage.record("甲")
 restoredUsage.record("甲")

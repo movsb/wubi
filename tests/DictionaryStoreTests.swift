@@ -119,6 +119,38 @@ func runDictionaryStoreTests() throws {
     check(!FileManager.default.fileExists(atPath: data.appendingPathComponent("tmp/dictionary-merge-report.json").path), "disabled merge removes stale report")
     try "{}".write(to: settings, atomically: true, encoding: .utf8)
     check(store.reload() && store.mergeEnabled && store.wubi.lookup("abef").first == "甲乙", "default settings re-enable runtime merge")
+    let excludedURL = data.appendingPathComponent("excluded.txt")
+    try write("甲乙丙\tjia yi bing\n", to: userPinyin)
+    try write("\u{feff}# 排除词库\r\n  原词 # 内置词\r甲乙\n甲乙丙\n甲乙\n\n", to: excludedURL)
+    check(store.reload(), "exclusions accept BOM, comments, CRLF, CR, blanks and duplicates")
+    check(store.wubi.lookup("abef").isEmpty && store.pinyin.lookup("jiayi").isEmpty
+          && store.pinyin.lookup("yuanci").isEmpty, "exclusions remove bundled and generated words in both modes")
+    check(store.wubi.lookup("aeij").isEmpty && store.pinyin.lookup("jiayibing").isEmpty,
+          "exclusions override manual words")
+    check(store.wubi.candidates(prefix: "aei").isEmpty && store.wubi.reverseLookup("甲乙丙") == nil
+          && store.pinyin.candidates(prefix: "jia").isEmpty, "excluded words disappear from prefix and reverse indices")
+    check(store.report?.newPhrases.isEmpty == true && store.wubi.lookup("abcd") == ["甲"],
+          "excluded words are not generated and unrelated words remain")
+    try write("{\"mergePinyinIntoWubi\":false}", to: settings)
+    check(store.reload() && store.wubi.lookup("abef").isEmpty && store.pinyin.lookup("jiayi").isEmpty,
+          "exclusions also apply when automatic merge is disabled")
+    try write("{}", to: settings)
+    try FileManager.default.removeItem(at: excludedURL)
+    check(store.reload() && store.wubi.lookup("abef") == ["甲乙", "原词"]
+          && store.pinyin.lookup("jiayibing") == ["甲乙丙"], "removing exclusions restores words on reload")
+    try write("甲乙", to: excludedURL)
+    check(store.reload() && store.wubi.lookup("aeij") == ["甲乙丙"], "exclusions match whole words only")
+    try write("甲\n乙\n丙\n原词\n我\n金\n甲乙\n甲乙丙", to: excludedURL)
+    check(store.reload() && store.wubi.count == 0 && store.hasLoadedSnapshot,
+          "excluding every Wubi word produces a valid empty snapshot")
+    try write("甲乙", to: excludedURL)
+    check(store.reload(), "reload restores candidates after an empty snapshot")
+    try Data([0xff]).write(to: excludedURL)
+    check(!store.reload() && store.wubi.lookup("aeij") == ["甲乙丙"]
+          && store.issues.contains { $0.contains("excluded.txt") }, "unreadable exclusion file preserves previous snapshot and reports error")
+    try FileManager.default.removeItem(at: excludedURL)
+    try FileManager.default.removeItem(at: userPinyin)
+    check(store.reload(), "restoring valid exclusion inputs reloads successfully")
     let firstReport = try Data(contentsOf: data.appendingPathComponent("tmp/dictionary-merge-report.json"))
     _ = store.reload()
     let secondReport = try Data(contentsOf: data.appendingPathComponent("tmp/dictionary-merge-report.json"))

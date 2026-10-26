@@ -5,6 +5,16 @@ struct DictionaryRow {
     let code: String
     let weight: Double
 
+    static func readExcludedWords(_ url: URL) throws -> Set<String> {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        let contents = try String(contentsOf: url, encoding: .utf8)
+        return Set(contents.components(separatedBy: .newlines).compactMap { raw in
+            let word = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+                .trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{feff}")))
+            return word.isEmpty ? nil : word
+        })
+    }
+
     static func readUserText(_ url: URL) throws -> [DictionaryRow] {
         let contents = try String(contentsOf: url, encoding: .utf8)
         var rows: [DictionaryRow] = []

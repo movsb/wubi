@@ -18,6 +18,7 @@ final class DictionaryStore {
     private(set) var report: DictionaryMergeReport?
     private(set) var issues: [String] = []
     private(set) var mergeEnabled = true
+    private(set) var hasLoadedSnapshot = false
 
     init(resourceDirectory: URL, dataDirectory: URL, builderURL: URL? = nil, log: @escaping (String) -> Void = { NSLog("%@", $0) }) {
         self.builderURL = builderURL
@@ -33,6 +34,7 @@ final class DictionaryStore {
         let success = autoreleasepool { builderURL == nil ? reloadSnapshot() : reloadUsingBuilder() }
         // Building a large snapshot is exceptional; return its freed scratch pages to macOS.
         malloc_zone_pressure_relief(nil, 0)
+        if success { hasLoadedSnapshot = true }
         return success
     }
 
@@ -70,7 +72,6 @@ final class DictionaryStore {
                               userInfo: [NSLocalizedDescriptionKey: "词库构建失败，保留此前的运行时词库"])
             }
             let snapshot = try JSONDecoder().decode(Snapshot.self, from: Data(contentsOf: temporary.appendingPathComponent("snapshot.json")))
-            guard snapshot.wubiCount > 0 else { throw NSError(domain: "Wubi.Builder", code: 1) }
             let nextWubi = try WubiDictionary(indexURL: temporary.appendingPathComponent("wubi.index"), count: snapshot.wubiCount)
             let nextPinyin = try PinyinDictionary(indexDirectory: temporary, count: snapshot.pinyinCount)
             wubi = nextWubi
@@ -110,12 +111,24 @@ final class DictionaryStore {
                 }
             }
         }
+        let excludedURL = dataDirectory.appendingPathComponent("excluded.txt")
+        var excluded = Set<String>()
+        if FileManager.default.fileExists(atPath: excludedURL.path) {
+            do {
+                excluded = try DictionaryRow.readExcludedWords(excludedURL)
+            } catch {
+                issues = ["无法读取 excluded.txt，保留此前的运行时词库：\(error.localizedDescription)"]
+                log("Wubi dictionaries: " + issues.joined(separator: "\n"))
+                return false
+            }
+        }
         let bundled = files(resourceDirectory)
-        let wubiRows = rows(bundled.filter { $0.lastPathComponent.hasPrefix("wubi") && $0.lastPathComponent != "wubi_merged.txt" })
+        let sourceWubiRows = rows(bundled.filter { $0.lastPathComponent.hasPrefix("wubi") && $0.lastPathComponent != "wubi_merged.txt" })
         let pinyinRows = rows(bundled.filter { $0.lastPathComponent == "pinyin_simp.txt" })
             + rows(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent("manual.txt").path)
                    ? [dataDirectory.appendingPathComponent("manual.txt")] : [], userText: true)
-        var newPinyin = PinyinDictionary(rows: pinyinRows)
+        let wubiRows = sourceWubiRows.filter { !excluded.contains($0.word) }
+        var newPinyin = PinyinDictionary(rows: pinyinRows.filter { !excluded.contains($0.word) })
         struct Settings: Decodable { let mergePinyinIntoWubi: Bool? }
         let settingsURL = dataDirectory.appendingPathComponent("settings.json")
         var enabled = true
@@ -124,7 +137,7 @@ final class DictionaryStore {
             catch { problems.append("设置文件无效，使用默认设置：\(error.localizedDescription)") }
         }
         let original = WubiDictionary(rows: wubiRows)
-        guard original.count > 0 else {
+        guard sourceWubiRows.contains(where: { !$0.word.isEmpty && $0.wubiCode != nil }) else {
             issues = problems + ["没有有效的五笔词条，保留此前的运行时词库"]
             log("Wubi dictionaries: " + issues.joined(separator: "\n"))
             return false
