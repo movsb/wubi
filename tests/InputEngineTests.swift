@@ -39,6 +39,7 @@ struct Session {
         for effect in effects {
             switch effect {
             case .insert(let text): output += text; marked = ""
+            case .queryExternal, .savePhrase: break
             case .refresh: marked = engine.code
             case .quoteHint(let text): hints.append(text)
             case .modeHint(let text): modeHints.append(text)
@@ -69,6 +70,52 @@ struct Session {
 }
 
 func runInputEngineTests() {
+    var manyReadings = InputEngine(lookup: { _ in [] }, readings: { _ in ["a", "ai", "an", "ang", "ao"] })
+    _ = manyReadings.handle(InputKey(text: "a"))
+    _ = manyReadings.handle(InputKey(text: "*"))
+    _ = manyReadings.receiveExternal([String(repeating: "重", count: 12)], request: manyReadings.externalRequest!)
+    _ = manyReadings.handle(InputKey(code: 49))
+    check(manyReadings.candidateCount == 244_140_625 && manyReadings.visibleCandidates.count == 5,
+          "hundreds of millions of pronunciations expose only one page without materializing all combinations")
+    check(manyReadings.candidate(at: manyReadings.candidateCount - 1)?.text == Array(repeating: "ao", count: 12).joined(separator: " "),
+          "lazy pronunciation access reaches the final combination")
+    _ = manyReadings.handle(InputKey(text: "."))
+    check(manyReadings.page == 1 && manyReadings.visibleCandidates.first == manyReadings.candidate(at: 5),
+          "pronunciation paging indexes into combinations directly")
+    let picked = manyReadings.handle(InputKey(text: "3"))
+    check(picked.effects == [.savePhrase(String(repeating: "重", count: 12), manyReadings.candidate(at: 7)!.text)],
+          "numeric selection on lazy pages keeps its absolute index")
+
+    var collector = InputEngine(lookup: { _ in ["普通词"] }, readings: { _ in ["chong", "zhong"] })
+    _ = collector.handle(InputKey(text: "a"))
+    let query = collector.handle(InputKey(text: "*"))
+    let request = collector.externalRequest!
+    check(query.effects.contains(.queryExternal("a", request)), "asterisk queries even with ordinary candidates")
+    check(collector.receiveExternal(["重重"], request: request), "external results accepted")
+    let choose = collector.handle(InputKey(text: " ", code: 49))
+    check(choose.effects == [.refresh] && collector.choices.count == 4, "word selection offers all polyphonic combinations")
+    _ = collector.handle(InputKey(code: 125))
+    let save = collector.handle(InputKey(text: " ", code: 49))
+    check(save.effects == [.savePhrase("重重", "chong zhong")], "confirm pronunciation saves without premature insertion")
+    check(collector.finishPhrase("重重") == [.insert("重重")] && collector.code.isEmpty, "saved word commits and clears composition")
+    var iceCollector = InputEngine(lookup: { _ in [] })
+    _ = iceCollector.handle(InputKey(text: "a"))
+    _ = iceCollector.handle(InputKey(text: "*"))
+    let iceRequest = iceCollector.externalRequest!
+    _ = iceCollector.receiveExternal(["重重"], request: iceRequest, readings: ["重": ["zhong", "chong"]])
+    _ = iceCollector.handle(InputKey(text: " ", code: 49))
+    check(iceCollector.choices.count == 4, "external character readings support words missing resident readings")
+    _ = iceCollector.handle(InputKey(code: 53))
+    check(!iceCollector.collectingPhrase, "cancel clears external readings and phrase selection")
+    _ = collector.handle(InputKey(text: "a"))
+    _ = collector.handle(InputKey(text: "*"))
+    let stale = collector.externalRequest!
+    _ = collector.handle(InputKey(text: "b"))
+    check(!collector.receiveExternal(["过期"], request: stale) && collector.code == "ab", "editing invalidates pending query")
+    _ = collector.handle(InputKey(text: "*"))
+    _ = collector.handle(InputKey(code: 53))
+    check(!collector.collectingPhrase && collector.code == "ab", "escape restores original composition")
+
     var session = Session()
     session.type("imde")
     check(session.output.isEmpty && session.marked == "imde", "unique four-code candidate must not auto-commit")

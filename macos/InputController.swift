@@ -89,6 +89,7 @@ class WubiInputController: IMKInputController {
         pinyinLookup: { DictionaryStore.shared.pinyin.lookup($0) },
         wubiCandidates: { DictionaryStore.shared.wubi.candidates(prefix: $0) },
         pinyinCandidates: { DictionaryStore.shared.pinyin.candidates(prefix: $0) },
+        readings: { DictionaryStore.shared.pinyin.readings(for: $0) },
         usage: WordUsageStore.shared)
     private var code: String { engine.code }
     private var page: Int { engine.page }
@@ -265,6 +266,17 @@ class WubiInputController: IMKInputController {
             case .insert(let text):
                 client.insertText(text, replacementRange: missingRange)
                 panel?.orderOut(nil)
+            case .queryExternal(let code, let request):
+                queryExternal(code, request: request, client: client)
+            case .savePhrase(let word, let spelling):
+                do {
+                    try ManualReadings.save(word: word, spelling: spelling,
+                        to: DictionaryStore.shared.dataDirectory.appendingPathComponent("manual.txt"))
+                    apply(engine.finishPhrase(word), to: client)
+                    DictionaryStore.shared.reloadInBackground { success in
+                        if !success { NSLog("词条已保存并上屏，但词库刷新失败，请重新加载") }
+                    }
+                } catch { showQuoteHint(error.localizedDescription, client: client) }
             case .refresh:
                 refresh(client)
             case .quoteHint(let text), .modeHint(let text):
@@ -273,13 +285,52 @@ class WubiInputController: IMKInputController {
         }
     }
 
+    private func queryExternal(_ code: String, request: UUID, client: IMKTextInput) {
+        let resources = Bundle.main.resourceURL!
+        let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/WubiExternalQuery")
+        let directory = DictionaryStore.shared.dataDirectory
+        let currentDictionary = DictionaryStore.shared.wubi
+        showQuoteHint("正在查询扩展词库…", client: client)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let resultDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("Wubi-query-" + UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: resultDirectory) }
+            var response: ExternalCandidates?
+            var failure: String?
+            do {
+                let process = Process()
+                process.executableURL = executable
+                process.arguments = [resources.path, directory.path, code, "--index-dir", resultDirectory.path]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                try process.run()
+                process.waitUntilExit()
+                guard process.terminationStatus == 0 else { throw ManualReadings.error("扩展词库查询失败") }
+                // Saved phrases may still be waiting for the background dictionary rebuild.
+                let manualURL = directory.appendingPathComponent("manual.txt")
+                let saved = FileManager.default.fileExists(atPath: manualURL.path)
+                    ? Set(try DictionaryRow.readUserText(manualURL).map(\.word)) : []
+                response = try ExternalCandidates(directory: resultDirectory) { word in
+                    !saved.contains(word) && currentDictionary.reverseLookup(word) == nil
+                }
+            } catch { failure = error.localizedDescription }
+            let results = response ?? ExternalCandidates(words: [])
+            let message = failure
+            DispatchQueue.main.async {
+                guard let self, self.engine.receiveExternal(results, request: request) else { return }
+                self.dismissQuoteHint()
+                self.refresh(client)
+                if let message { self.showQuoteHint(message, client: client) }
+                else if results.count == 0 { self.showQuoteHint("没有可新增的匹配词条", client: client) }
+            }
+        }
+    }
+
     private func refresh(_ client: IMKTextInput) {
         client.setMarkedText(code, selectionRange: NSRange(location: code.utf16.count, length: 0), replacementRange: missingRange)
         guard !code.isEmpty else { panel?.orderOut(nil); return }
-        let values = engine.candidates
-        guard !values.isEmpty else { panel?.orderOut(nil); return }
-        let start = min(page * InputEngine.pageSize, values.count)
-        let visible = values.dropFirst(start).prefix(InputEngine.pageSize)
+        let visible = engine.visibleCandidates
+        guard !visible.isEmpty else { panel?.orderOut(nil); return }
+        let start = page * InputEngine.pageSize
         let text = NSMutableAttributedString(string: "")
         let wordFont = NSFont.systemFont(ofSize: 13)
         let numberFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -374,7 +425,10 @@ class WubiInputController: IMKInputController {
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
             window.ignoresMouseEvents = false
-            label.onDelete = { [weak self] word in self?.deleteCandidate(word) }
+            label.onDelete = { [weak self] word in
+                guard let self, !self.engine.collectingPhrase else { return }
+                self.deleteCandidate(word)
+            }
             window.contentView?.addSubview(label)
             panel = window
         }

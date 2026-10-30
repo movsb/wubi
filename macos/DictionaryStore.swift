@@ -9,6 +9,9 @@ final class DictionaryStore {
     static let shared = DictionaryStore(resourceDirectory: Bundle.main.resourceURL!, dataDirectory: defaultDataDirectory,
                                         builderURL: Bundle.main.url(forAuxiliaryExecutable: "WubiDictionaryBuilder"))
 
+    private let reloadQueue = DispatchQueue(label: "Wubi.dictionary-reload", qos: .userInitiated)
+    private var reloadGeneration: UInt = 0
+    private var asyncReloadWork: DispatchWorkItem?
     private let builderURL: URL?
     private let resourceDirectory: URL
     private let log: (String) -> Void
@@ -30,12 +33,49 @@ final class DictionaryStore {
 
     @discardableResult
     func reload() -> Bool {
+        reloadGeneration &+= 1
+        asyncReloadWork?.cancel()
+        asyncReloadWork = nil
         // Startup runs before the AppKit event loop can drain its autorelease pool.
         let success = autoreleasepool { builderURL == nil ? reloadSnapshot() : reloadUsingBuilder() }
         // Building a large snapshot is exceptional; return its freed scratch pages to macOS.
         malloc_zone_pressure_relief(nil, 0)
         if success { hasLoadedSnapshot = true }
         return success
+    }
+
+    // Call on the main thread. Build an isolated store off-thread and publish only the
+    // latest request on the main thread, where input clients read the dictionaries.
+    // Superseded requests do not invoke completion; queued work is coalesced.
+    func reloadInBackground(completion: @escaping (Bool) -> Void = { _ in }) {
+        precondition(Thread.isMainThread)
+        reloadGeneration &+= 1
+        let generation = reloadGeneration
+        asyncReloadWork?.cancel()
+        let resources = resourceDirectory
+        let data = dataDirectory
+        let builder = builderURL
+        let logger = log
+        let work = DispatchWorkItem { [weak self] in
+            let next = DictionaryStore(resourceDirectory: resources, dataDirectory: data,
+                                       builderURL: builder, log: logger)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.reloadGeneration == generation else { return }
+                self.asyncReloadWork = nil
+                let success = next.hasLoadedSnapshot
+                if success {
+                    self.wubi = next.wubi
+                    self.pinyin = next.pinyin
+                    self.report = next.report
+                    self.mergeEnabled = next.mergeEnabled
+                    self.hasLoadedSnapshot = true
+                }
+                self.issues = next.issues
+                completion(success)
+            }
+        }
+        asyncReloadWork = work
+        reloadQueue.async(execute: work)
     }
 
     private struct Snapshot: Codable {

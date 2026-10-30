@@ -25,6 +25,11 @@ final class CandidateIndex {
     private var mapped: Data?
     private var mappedCount = 0
     private var byteStart = 0
+    var count: Int { recordCount }
+    func text(at index: Int) -> String? {
+        guard index >= 0, index < recordCount else { return nil }
+        return text(record(index))
+    }
     private var recordCount: Int { mapped == nil ? records.count : mappedCount }
     private func record(_ index: Int) -> Record {
         guard let mapped else { return records[index] }
@@ -166,4 +171,38 @@ final class CandidateIndex {
         }
         return result
     }
+}
+
+// Query results remain file-backed. Only retained row numbers and the visible
+// words are materialized in the input method, even for a one-letter expansion.
+final class ExternalCandidates {
+    let count: Int
+    private let wordAt: (Int) -> String?
+    private let characterReadings: (Character) -> [String]
+
+    init(words: [String], readings: [String: [String]] = [:]) {
+        count = words.count
+        wordAt = { words.indices.contains($0) ? words[$0] : nil }
+        characterReadings = { readings[String($0)] ?? [] }
+    }
+
+    init(directory: URL, keeping include: (String) -> Bool) throws {
+        let words = try CandidateIndex(mappedURL: directory.appendingPathComponent("words.index"))
+        let readings = try CandidateIndex(mappedURL: directory.appendingPathComponent("readings.index"))
+        var rows: [UInt32] = []
+        // Bound Foundation temporaries while testing membership for large results.
+        for start in stride(from: 0, to: words.count, by: 256) {
+            autoreleasepool {
+                for row in start..<min(start + 256, words.count) {
+                    if let word = words.text(at: row), include(word) { rows.append(UInt32(row)) }
+                }
+            }
+        }
+        count = rows.count
+        wordAt = { rows.indices.contains($0) ? words.text(at: Int(rows[$0])) : nil }
+        characterReadings = { readings.lookup(String($0)) }
+    }
+
+    func word(at index: Int) -> String? { wordAt(index) }
+    func readings(for character: Character) -> [String] { characterReadings(character) }
 }

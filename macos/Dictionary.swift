@@ -64,6 +64,12 @@ struct WubiDictionary {
 
     func reverseLookup(_ text: String) -> String? { reverseIndex.lookup(text).first }
 
+    // Membership spans every code, not just candidates for the active prefix.
+    // The reverse index lookup is read-only and can filter a captured snapshot off-thread.
+    func newWords(from words: [String]) -> [String] {
+        words.filter { reverseLookup($0) == nil }
+    }
+
     func candidates(prefix: String) -> [InputCandidate] {
         guard prefix.utf8.allSatisfy({ (97...122).contains($0) }) else { return [] }
         return prefixIndex.candidates(prefix: prefix)

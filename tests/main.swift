@@ -62,8 +62,10 @@ runInputEngineTests()
 runKeyEventTests()
 try runPinyinTests()
 try runDictionaryStoreTests()
+try runBackgroundReloadTests()
 try runProcessLifecycleTests()
 try runPrefixTests()
+try runExternalCandidateTests()
 
 let usageURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("frequencies.txt")
 defer { try? FileManager.default.removeItem(at: usageURL.deletingLastPathComponent()) }

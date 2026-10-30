@@ -93,6 +93,8 @@ struct InputKey {
 enum InputEffect: Equatable {
     case insert(String)
     case refresh
+    case queryExternal(String, UUID)
+    case savePhrase(String, String)
     case quoteHint(String)
     case modeHint(String)
 }
@@ -113,6 +115,26 @@ struct InputEngine {
     private var rightShiftTapPending = false
     private var shiftTapPending = false
     var page: Int { selectedIndex / Self.pageSize }
+    private(set) var externalRequest: UUID?
+    private var externalCandidates: ExternalCandidates?
+    private var phraseWord: String?
+    private var phraseReadings: ManualReadings?
+    private let readings: (Character) -> [String]
+    var collectingPhrase: Bool { externalRequest != nil || externalCandidates != nil || phraseWord != nil }
+    private mutating func cancelCollection() {
+        externalRequest = nil; externalCandidates = nil; phraseWord = nil; phraseReadings = nil
+        selectedIndex = 0
+    }
+    mutating func receiveExternal(_ words: [String], request: UUID, readings: [String: [String]] = [:]) -> Bool {
+        receiveExternal(ExternalCandidates(words: words, readings: readings), request: request)
+    }
+    mutating func receiveExternal(_ candidates: ExternalCandidates, request: UUID) -> Bool {
+        guard externalRequest == request else { return false }
+        externalRequest = nil
+        externalCandidates = candidates
+        selectedIndex = 0
+        return true
+    }
     private var punctuation = ChinesePunctuation()
     private let usage: WordUsageStore?
     private let lookup: (String) -> [String]
@@ -123,7 +145,9 @@ struct InputEngine {
     init(lookup: @escaping (String) -> [String], pinyinLookup: @escaping (String) -> [String] = { _ in [] },
          wubiCandidates: ((String) -> [InputCandidate])? = nil,
          pinyinCandidates: ((String) -> [InputCandidate])? = nil,
+         readings: @escaping (Character) -> [String] = { _ in [] },
          usage: WordUsageStore? = nil) {
+        self.readings = readings
         self.usage = usage
         self.lookup = lookup
         self.pinyinLookup = pinyinLookup
@@ -131,9 +155,41 @@ struct InputEngine {
         self.pinyinCandidates = pinyinCandidates
     }
 
+    // Full arrays are kept for callers inspecting ordinary dictionary results.
+    // Input handling and rendering use count, indexed access and the visible page.
     var choices: [String] { candidates.map(\.text) }
-
     var candidates: [InputCandidate] {
+        if collectingPhrase { return (0..<candidateCount).compactMap { candidate(at: $0) } }
+        return ordinaryCandidates
+    }
+    var candidateCount: Int {
+        guard !englishMode else { return 0 }
+        if let options = phraseReadings { return options.count }
+        if let external = externalCandidates { return external.count }
+        if externalRequest != nil { return 0 }
+        return ordinaryCandidates.count
+    }
+    func candidate(at index: Int) -> InputCandidate? {
+        guard !englishMode, index >= 0 else { return nil }
+        if let options = phraseReadings {
+            return options.spelling(at: index).map { InputCandidate(text: $0, remainingCode: "") }
+        }
+        if let external = externalCandidates {
+            return external.word(at: index).map { InputCandidate(text: $0, remainingCode: "") }
+        }
+        if externalRequest != nil { return nil }
+        let values = ordinaryCandidates
+        return values.indices.contains(index) ? values[index] : nil
+    }
+    var visibleCandidates: [InputCandidate] {
+        let start = page * Self.pageSize
+        if collectingPhrase {
+            let end = start + min(Self.pageSize, max(0, candidateCount - start))
+            return (start..<end).compactMap { candidate(at: $0) }
+        }
+        return Array(ordinaryCandidates.dropFirst(start).prefix(Self.pageSize))
+    }
+    private var ordinaryCandidates: [InputCandidate] {
         guard !englishMode else { return [] }
         if pinyinMode {
             guard code.utf8.allSatisfy({ (97...122).contains($0) || $0 == 39 }) else { return [] }
@@ -148,7 +204,7 @@ struct InputEngine {
     }
 
     mutating func refreshCandidates() {
-        selectedIndex = min(selectedIndex, max(0, candidates.count - 1))
+        selectedIndex = min(selectedIndex, max(0, candidateCount - 1))
     }
 
     mutating func handle(_ key: InputKey) -> InputResult {
@@ -159,6 +215,45 @@ struct InputEngine {
         if englishMode { return InputResult(handled: false) }
         if key.shortcut { return InputResult(handled: false, effects: commit()) }
         let text = key.text
+        if !key.capsLock, !pinyinMode, (1...4).contains(code.count), text == "*",
+           code.utf8.allSatisfy({ (97...122).contains($0) }) {
+            cancelCollection()
+            let request = UUID()
+            externalRequest = request
+            return InputResult(handled: true, effects: [.refresh, .queryExternal(code, request)])
+        }
+        if collectingPhrase {
+            if key.code == 53 || key.code == 51 {
+                cancelCollection()
+                return refresh()
+            }
+            if key.code == 49 || (Int(text).map { (1...5).contains($0) } ?? false) {
+                let index = key.code == 49 ? selectedIndex : page * Self.pageSize + Int(text)! - 1
+                guard let selected = candidate(at: index)?.text else { return refresh() }
+                if let word = phraseWord {
+                    return InputResult(handled: true, effects: [.savePhrase(word, selected)])
+                }
+                let word = selected
+                do {
+                    let baseReadings = readings
+                    let extra = externalCandidates
+                    phraseReadings = try ManualReadings(word: word) { character in
+                        let base = baseReadings(character)
+                        return base + (extra?.readings(for: character) ?? []).filter { !base.contains($0) }
+                    }
+                    phraseWord = word
+                    externalCandidates = nil
+                    selectedIndex = 0
+                    return refresh()
+                } catch {
+                    return InputResult(handled: true, effects: [.modeHint(error.localizedDescription)])
+                }
+            }
+            if ![",", ".", "，", "。"].contains(text), key.code != 125, key.code != 126 {
+                // Other keys return to ordinary input without accepting an unconfirmed phrase.
+                cancelCollection()
+            }
+        }
         if text.utf8.count == 1, let byte = text.utf8.first,
            (97...122).contains(byte) || (65...90).contains(byte), !key.capsLock {
             code += text
@@ -170,13 +265,13 @@ struct InputEngine {
             selectedIndex = 0
             return refresh()
         }
-        if !code.isEmpty, choices.isEmpty, text.utf8.count == 1,
+        if !collectingPhrase, !code.isEmpty, candidateCount == 0, text.utf8.count == 1,
            let byte = text.utf8.first, (33...126).contains(byte) {
             code += text
             selectedIndex = 0
             return refresh()
         }
-        if !key.capsLock, !choices.isEmpty, [",", ".", "，", "。"].contains(text) {
+        if !key.capsLock, candidateCount > 0, [",", ".", "，", "。"].contains(text) {
             selectPage(page + ((text == "," || text == "，") ? -1 : 1))
             return refresh()
         }
@@ -201,12 +296,12 @@ struct InputEngine {
         case 126:
             selectedIndex = max(0, selectedIndex - 1)
         case 125:
-            selectedIndex = min(max(0, choices.count - 1), selectedIndex + 1)
+            selectedIndex = min(max(0, candidateCount - 1), selectedIndex + 1)
         default:
             if let digit = Int(text), (1...9).contains(digit) {
                 let index = page * Self.pageSize + digit - 1
-                if digit <= Self.pageSize && choices.indices.contains(index) {
-                    return InputResult(handled: true, effects: [select(choices[index])])
+                if digit <= Self.pageSize, let selected = candidate(at: index)?.text {
+                    return InputResult(handled: true, effects: [select(selected)])
                 }
                 return InputResult(handled: true)
             } else {
@@ -218,9 +313,14 @@ struct InputEngine {
 
     mutating func commit() -> [InputEffect] {
         guard !code.isEmpty else { return [] }
-        let values = choices
-        guard !values.isEmpty else { return [insert(code)] }
-        return [select(values[min(selectedIndex, values.count - 1)])]
+        if collectingPhrase { cancelCollection(); return [insert(code)] }
+        guard let selected = candidate(at: min(selectedIndex, max(0, candidateCount - 1)))?.text else { return [insert(code)] }
+        return [select(selected)]
+    }
+
+    mutating func finishPhrase(_ word: String) -> [InputEffect] {
+        usage?.record(word)
+        return [insert(word)]
     }
 
     mutating func deactivate() -> [InputEffect] {
@@ -281,7 +381,7 @@ struct InputEngine {
     }
 
     private mutating func selectPage(_ requested: Int) {
-        let target = min(max(0, (choices.count - 1) / Self.pageSize), max(0, requested))
+        let target = min(max(0, (candidateCount - 1) / Self.pageSize), max(0, requested))
         if target != page { selectedIndex = target * Self.pageSize }
     }
 
@@ -293,6 +393,7 @@ struct InputEngine {
     }
 
     private mutating func insert(_ text: String) -> InputEffect {
+        cancelCollection()
         code = ""; selectedIndex = 0
         return .insert(text)
     }

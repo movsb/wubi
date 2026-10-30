@@ -88,3 +88,27 @@ bash scripts/test-manual-phrase-window.sh
 ### 手动验证
 
 自动测试不能替代 InputMethodKit 集成验证。安装后仍需在 TextEdit、浏览器等应用中检查输入、焦点、候选窗位置、字体、外观切换及系统通知。
+
+## 扩展查词程序（Go）
+
+`./scripts/external-query` 是无第三方依赖的 Go 命令行程序，macOS 构建脚本将其编译并签名为 `Contents/MacOS/WubiExternalQuery`。Windows 可使用相同源码和协议编译 `.exe`。
+
+```text
+WubiExternalQuery RESOURCE_DIRECTORY USER_DIRECTORY CODE [--index-dir DIRECTORY]
+```
+
+输入为一至四个小写字母编码。程序读取资源根目录的 `wubi*.txt`、资源目录的 `external/*.txt` 和用户目录的 `external/*.txt`；后两者不存在时跳过。格式为 `词语<Tab>五笔码[<Tab>权重]`，权重不参与扩展结果排序。另外读取资源目录和用户目录的 `cn_dicts/*.txt`，依据常驻五笔单字码按现有组词规则生成编码。文件流式扫描，不构建完整词库索引。返回 UTF-8 JSON 对象 `{"words": ["词语"], "readings": {"字": ["zi"]}}` 到 stdout，精确匹配优先，其后按文件名和行顺序排列，同词去重；无匹配返回 `{"words": [], "readings": {}}`。遵守用户目录的 `excluded.txt`。失败时 stderr 输出错误并以非零状态退出。`readings` 仅包含匹配词涉及的单字读音，由输入法与现有单字读音合并，用于后续拼音组合选择。程序不写用户数据。
+
+输入法在后台使用查询开始时的五笔快照反查过滤已有词（覆盖所有编码），并读取 `manual.txt` 排除已保存、尚未完成后台刷新或仅加入拼音的个人词条。过滤保持外部结果的顺序。macOS 调用时指定 `--index-dir`，Go 在指定目录写入 `words.index`、`readings.index`，stdout 不输出整批 JSON。两个文件使用与 `CandidateIndex.swift` 相同的 `WUBIIDX1` 格式：8 字节魔数、两个 little-endian UInt64（记录数、字节区长度），每条记录为四个 UInt32（词语偏移、词语长度、编码偏移、编码长度）及一个 Double 权重，末尾为 UTF-8 字节区。词语文件的编码为空以保留查询顺序；读音文件按单字编码排序。查询失败时丢弃整个临时目录。
+
+输入法映射结果文件，只保留通过过滤的 UInt32 行号，候选窗及方向键每次最多读取 5 行。选中词后释放扩展列表，拼音组合使用 `ManualReadings.spelling(at:)` 按索引生成，避免分配所有组合。映射建立后在 macOS 上删除临时文件，映射随候选取消或选词释放；其他平台可在解除映射后清理文件。未指定 `--index-dir` 时仍返回上述 JSON，便于命令行调试。
+
+运行 `./scripts/profile-external-memory.sh` 可独立测量三次 `w*` 展开、翻页及取消后的物理占用，并检查 2.44 亿种拼音组合仅生成当前页。需要先下载 cn_dicts 并构建；基准要求常驻词库加载成功、每次展开超过 5 万个新词，展开及浏览后的占用相对基线增量不得超过 8 MiB。
+
+输入法异步调用程序，以请求 ID 丢弃编码修改、取消、模式切换或离开输入上下文后的旧结果。确认拼音后，输入法复用 `ManualReadings.save` 保存，立即上屏，再调用 `DictionaryStore.reloadInBackground`。后台在独立 Store 中构建并映射快照，在主线程发布最新请求的结果；过期结果丢弃，失败时保留旧词库。刷新完成前，新词已写入磁盘，当前输入继续使用旧快照。
+
+```bash
+go test ./scripts/external-query
+# 检查 Windows 编译（无需 Windows 运行环境）
+GOOS=windows GOARCH=amd64 go build -o build/WubiExternalQuery.exe ./scripts/external-query
+```

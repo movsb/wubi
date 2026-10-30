@@ -233,3 +233,61 @@ func runDictionaryStoreTests() throws {
         print("PASS: real runtime merge; \(merged.report.addedPhrases) new words, \(shortCodes.count) short-code groups protected")
     }
 }
+
+func runBackgroundReloadTests() throws {
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let resources = temporary.appendingPathComponent("resources")
+    let data = temporary.appendingPathComponent("user")
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+    let base = resources.appendingPathComponent("wubi.txt")
+    try "甲\tabcd\n".write(to: base, atomically: true, encoding: .utf8)
+    let lock = NSLock()
+    var loadedOffMain = false
+    let store = DictionaryStore(resourceDirectory: resources, dataDirectory: data) { _ in
+        lock.lock()
+        if !Thread.isMainThread { loadedOffMain = true }
+        lock.unlock()
+    }
+    func wait(_ predicate: () -> Bool) {
+        let deadline = Date().addingTimeInterval(5)
+        while !predicate() && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        check(predicate(), "background reload finishes within timeout")
+    }
+    try "乙\tefgh\n".write(to: base, atomically: true, encoding: .utf8)
+    var complete = false
+    store.reloadInBackground { success in
+        check(success && Thread.isMainThread, "background snapshot publishes on main thread")
+        complete = true
+    }
+    check(!complete && store.wubi.lookup("abcd") == ["甲"], "input keeps old snapshot while rebuild is pending")
+    wait { complete }
+    lock.lock(); let offMain = loadedOffMain; lock.unlock()
+    check(offMain && store.wubi.lookup("efgh") == ["乙"], "dictionary work runs off main and becomes visible after publication")
+
+    try FileManager.default.removeItem(at: base)
+    complete = false
+    store.reloadInBackground { success in
+        check(!success, "failed background refresh reports failure")
+        complete = true
+    }
+    wait { complete }
+    check(store.wubi.lookup("efgh") == ["乙"], "failed background refresh preserves previous dictionary")
+
+    try "丙\tijkl\n".write(to: base, atomically: true, encoding: .utf8)
+    var staleCallback = false
+    store.reloadInBackground { _ in staleCallback = true }
+    check(store.reload(), "explicit reload supersedes pending background request")
+    try "丁\tmnop\n".write(to: base, atomically: true, encoding: .utf8)
+    complete = false
+    store.reloadInBackground { success in
+        check(success, "latest background request succeeds")
+        complete = true
+    }
+    wait { complete }
+    check(!staleCallback && store.wubi.lookup("mnop") == ["丁"] && store.wubi.lookup("ijkl").isEmpty,
+          "superseded work never publishes an old snapshot or completion")
+    print("PASS: background reload, snapshot publication, failure recovery and stale request suppression")
+}

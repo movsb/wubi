@@ -3,7 +3,8 @@
 set -eu
 
 PREFIX='https://raw.githubusercontent.com/KyleBing/rime-wubi86-jidian/master'
-DICTS=(wubi86_jidian.dict.yaml wubi86_jidian_addition.dict.yaml wubi86_jidian_extra.dict.yaml wubi86_jidian_user.dict.yaml)
+# 主词库常驻；两个 extra 词库由构建脚本打包为按需查询的外部词库。
+DICTS=(wubi86_jidian.dict.yaml wubi86_jidian_extra.dict.yaml wubi86_jidian_extra_district.dict.yaml)
 
 cd "$(dirname "$0")"
 for dict in "${DICTS[@]}"; do

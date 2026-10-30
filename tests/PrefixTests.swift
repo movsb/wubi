@@ -15,6 +15,10 @@ func runPrefixTests() throws {
     check(reverse.reverseLookup("没有") == "imde", "reverse lookup supports phrases")
     check(reverse.reverseLookup("𠮷") == "fk", "reverse lookup supports short-only and supplementary characters")
     check(reverse.reverseLookup("未知词") == nil, "missing reverse lookup has no invented code")
+    check(reverse.newWords(from: ["没有", "新增词", "我", "好", "𠮷"]) == ["新增词"],
+          "expanded results omit resident words across every code and preserve new-word order")
+    check(reverse.newWords(from: ["新增甲", "新增乙"]) == ["新增甲", "新增乙"],
+          "expansion preserves source order for unknown words")
     let reverseURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer {
         try? FileManager.default.removeItem(at: reverseURL)
@@ -24,6 +28,8 @@ func runPrefixTests() throws {
     let mappedReverse = try WubiDictionary(indexURL: reverseURL, count: reverse.count)
     check(mappedReverse.reverseLookup("我") == "q", "builder snapshot preserves shortest reverse lookup")
     check(mappedReverse.reverseLookup("好") == "vb", "builder snapshot preserves two-letter abbreviation")
+    check(mappedReverse.newWords(from: ["没有", "新增词", "我"]) == ["新增词"],
+          "mapped resident snapshot filters known words from expansions")
     check(mappedReverse.lookup("q") == ["我"], "reverse index does not alter forward lookup")
     // Differential check against a String-based reference, including large uncached results.
     let largeItems = (0..<6000).map { index in
@@ -190,4 +196,50 @@ func runPrefixTests() throws {
               "all real exact short-code candidates remain ahead of completions")
     }
     print("PASS: prefix matching, remaining codes, completion selection and English fallback")
+}
+
+func runExternalCandidateTests() throws {
+    let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let resources = temporary.appendingPathComponent("resources")
+    let data = temporary.appendingPathComponent("user")
+    let result = temporary.appendingPathComponent("result")
+    for name in ["external", "cn_dicts"] {
+        try FileManager.default.createDirectory(at: resources.appendingPathComponent(name), withIntermediateDirectories: true)
+    }
+    try "甲\tabcd\n乙\tefgh\n旧词\tabef\n".write(to: resources.appendingPathComponent("wubi.txt"), atomically: true, encoding: .utf8)
+    try "新词\tabef\n其他\tabeg\n".write(to: resources.appendingPathComponent("external/extra.txt"), atomically: true, encoding: .utf8)
+    try "甲\tjia\n甲\tga\n乙\tyi\n甲乙\tjia yi\n".write(to: resources.appendingPathComponent("cn_dicts/base.txt"), atomically: true, encoding: .utf8)
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("build/test-external-query")
+    process.arguments = [resources.path, data.path, "ab", "--index-dir", result.path]
+    process.standardOutput = FileHandle.nullDevice
+    try process.run()
+    process.waitUntilExit()
+    check(process.terminationStatus == 0, "Go query writes mapped result files successfully")
+    var includeCalls = 0
+    let external = try ExternalCandidates(directory: result) { word in
+        includeCalls += 1
+        return word != "旧词" && word != "新词"
+    }
+    check(includeCalls == 5 && external.count == 3, "mapped expansion filters existing and saved words once")
+    // Prefix matches preserve dictionary source order, including single-character 甲.
+    check((0..<external.count).compactMap { external.word(at: $0) } == ["甲", "其他", "甲乙"],
+          "mapped expansion preserves source order after filtering")
+    check(external.word(at: -1) == nil && external.word(at: external.count) == nil,
+          "mapped word access rejects out-of-range indices")
+    check(external.readings(for: "甲") == ["jia", "ga"], "Go binary readings index preserves all character readings")
+    try FileManager.default.removeItem(at: result)
+    check(external.word(at: 2) == "甲乙", "query mappings survive temporary file cleanup")
+    var engine = InputEngine(lookup: { _ in [] })
+    _ = engine.handle(InputKey(text: "a"))
+    _ = engine.handle(InputKey(text: "*"))
+    _ = engine.receiveExternal(external, request: engine.externalRequest!)
+    check(engine.visibleCandidates.map(\.text) == ["甲", "其他", "甲乙"], "input renders the mapped external page")
+    _ = engine.handle(InputKey(text: "3"))
+    check(engine.candidateCount == 2 && engine.visibleCandidates.map(\.text) == ["jia yi", "ga yi"],
+          "mapped word selection generates pronunciation combinations on demand")
+    check(engine.handle(InputKey(text: "2")).effects == [.savePhrase("甲乙", "ga yi")],
+          "mapped expansion keeps pronunciation confirmation and persistence behavior")
+    print("PASS: Go-to-Swift binary query protocol, mapped pages, filtering and pronunciation selection")
 }

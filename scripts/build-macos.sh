@@ -20,7 +20,24 @@ xcrun swift -module-cache-path "$PWD/build/module-cache" scripts/generate-menu-i
   "$app/Contents/Resources/CookieTemplate.tiff" "$PWD/build/menu-icon-preview.png"
 printf '%s\n' "$PWD" > "$app/Contents/Resources/DevelopmentSourcePath.txt"
 rm -f "$app/Contents/Resources/"*.dict.yaml "$app/Contents/Resources/"wubi*.txt "$app/Contents/Resources/pinyin_simp.txt"
-cp "${dicts[@]}" "$app/Contents/Resources/"
+mkdir -p "$app/Contents/Resources/external"
+rm -f "$app/Contents/Resources/external/"*.txt
+for dict in "${dicts[@]}"; do
+  case "$dict" in
+    wubi86_jidian.txt|pinyin_simp.txt) cp "$dict" "$app/Contents/Resources/" ;;
+    *) cp "$dict" "$app/Contents/Resources/external/" ;;
+  esac
+done
+# Pinyin expansion dictionaries stay out of the resident DictionaryStore inputs.
+rm -rf "$app/Contents/Resources/cn_dicts"
+if [ -d cn_dicts ]; then
+  mkdir -p "$app/Contents/Resources/cn_dicts"
+  ice_dicts=(cn_dicts/*.txt)
+  if [ ${#ice_dicts[@]} -gt 0 ]; then
+    cp "${ice_dicts[@]}" "$app/Contents/Resources/cn_dicts/"
+    cp cn_dicts/LICENSE "$app/Contents/Resources/cn_dicts/LICENSE"
+  fi
+fi
 rm -rf "$app/Contents/Resources/licenses"
 ditto licenses "$app/Contents/Resources/licenses"
 xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
@@ -32,6 +49,8 @@ xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
   macos/CandidateIndex.swift macos/DictionaryRow.swift macos/Dictionary.swift \
   macos/PinyinDictionary.swift macos/DictionaryMerger.swift macos/DictionaryStore.swift \
   scripts/dictionary-builder/main.swift -o "$app/Contents/MacOS/WubiDictionaryBuilder"
+GOCACHE="$PWD/build/go-cache" go build -o "$app/Contents/MacOS/WubiExternalQuery" ./scripts/external-query
+codesign --force --sign - "$app/Contents/MacOS/WubiExternalQuery"
 helper="$app/Contents/Helpers/ManualPhrase.app"
 mkdir -p "$helper/Contents/MacOS"
 cp macos/ManualPhrase-Info.plist "$helper/Contents/Info.plist"
