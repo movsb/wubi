@@ -1,7 +1,5 @@
 import Foundation
 
-let manualPhraseSavedNotification = Notification.Name("com.movsb.inputmethod.Wubi.manualPhraseSaved")
-
 // Mixed-radix enumeration keeps even many polyphonic characters cheap to page through.
 struct ManualReadings {
     let syllables: [[String]]

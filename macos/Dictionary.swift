@@ -62,8 +62,6 @@ struct WubiDictionary {
 
     func lookup(_ code: String) -> [String] { prefixIndex.lookup(code.lowercased()) }
 
-    func writeKnownWords(to url: URL) throws { try reverseIndex.write(to: url) }
-
     func reverseLookup(_ text: String) -> String? { reverseIndex.lookup(text).first }
 
     // Membership spans every code, not just candidates for the active prefix.

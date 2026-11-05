@@ -50,8 +50,6 @@ struct PinyinDictionary {
         syllableIndex = CandidateIndex(items: syllableItems, rankExactByWeight: true)
     }
 
-    func writeReadings(to url: URL) throws { try readingIndex.write(to: url) }
-
     func readings(for character: Character) -> [String] { readingIndex.lookup(String(character)) }
 
     func lookup(_ code: String) -> [String] {

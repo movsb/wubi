@@ -95,8 +95,6 @@ class WubiInputController: IMKInputController {
     private var manualKeyReleases = ManualKeyReleases()
     private var code: String { engine.code }
     private var page: Int { engine.page }
-    private static var manualApplication: NSRunningApplication?
-    private static var launchingManualApplication = false
     private var panel: NSPanel?
     private var hintDismissal: DispatchWorkItem?
     private let label = CandidateLabel(frame: .zero)
@@ -119,9 +117,6 @@ class WubiInputController: IMKInputController {
         item.isEnabled = reloadScript != nil && Self.reloadProcess == nil
         item.toolTip = "从本机源码构建并重启桃酥，无需注销"
         menu.addItem(item)
-        let manual = NSMenuItem(title: "手动造词", action: #selector(startManualPhrase(_:)), keyEquivalent: "")
-        manual.target = self
-        menu.addItem(manual)
         let reload = NSMenuItem(title: "重新加载词库", action: #selector(reloadDictionaries(_:)), keyEquivalent: "")
         reload.target = self
         menu.addItem(reload)
@@ -129,47 +124,6 @@ class WubiInputController: IMKInputController {
         open.target = self
         menu.addItem(open)
         return menu
-    }
-
-    @objc private func startManualPhrase(_ sender: Any?) {
-        if let app = Self.manualApplication, !app.isTerminated {
-            app.activate(options: [.activateIgnoringOtherApps])
-            return
-        }
-        guard !Self.launchingManualApplication else { return }
-        if let currentClient: IMKTextInput = client() { commitComposition(currentClient) }
-        panel?.orderOut(nil)
-        let snapshot = FileManager.default.temporaryDirectory.appendingPathComponent("Wubi-readings-" + UUID().uuidString)
-        do {
-            try DictionaryStore.shared.pinyin.writeReadings(to: snapshot)
-            try DictionaryStore.shared.wubi.writeKnownWords(to: snapshot.appendingPathExtension("words"))
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.arguments = [snapshot.path, DictionaryStore.shared.dataDirectory.path,
-                String(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)]
-            Self.launchingManualApplication = true
-            let helper = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/ManualPhrase.app")
-            NSWorkspace.shared.openApplication(at: helper, configuration: configuration) { app, error in
-                DispatchQueue.main.async {
-                    Self.launchingManualApplication = false
-                    Self.manualApplication = app
-                    if let error {
-                        try? FileManager.default.removeItem(at: snapshot)
-                        try? FileManager.default.removeItem(at: snapshot.appendingPathExtension("words"))
-                        let alert = NSAlert()
-                        alert.messageText = "无法打开手动造词"
-                        alert.informativeText = error.localizedDescription
-                        alert.runModal()
-                    }
-                }
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: snapshot)
-            try? FileManager.default.removeItem(at: snapshot.appendingPathExtension("words"))
-            let alert = NSAlert()
-            alert.messageText = "无法打开手动造词"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-        }
     }
 
     @objc private func reloadDictionaries(_ sender: Any?) {

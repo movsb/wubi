@@ -51,15 +51,8 @@ xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
   scripts/dictionary-builder/main.swift -o "$app/Contents/MacOS/WubiDictionaryBuilder"
 GOCACHE="$PWD/build/go-cache" go build -o "$app/Contents/MacOS/WubiExternalQuery" ./scripts/external-query
 codesign --force --sign - "$app/Contents/MacOS/WubiExternalQuery"
-helper="$app/Contents/Helpers/ManualPhrase.app"
-mkdir -p "$helper/Contents/MacOS"
-cp macos/ManualPhrase-Info.plist "$helper/Contents/Info.plist"
-xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
-  -target "$(uname -m)-apple-macosx13.0" -framework Cocoa \
-  macos/CandidateIndex.swift macos/DictionaryRow.swift macos/ManualPhrase.swift \
-  macos/ManualPhraseWindow.swift scripts/manual-phrase/main.swift \
-  -o "$helper/Contents/MacOS/ManualPhrase"
-codesign --force --sign - "$helper"
+# Remove the retired helper from app bundles built by an older version.
+rm -rf "$app/Contents/Helpers/ManualPhrase.app"
 codesign --force --sign - "$app/Contents/MacOS/WubiDictionaryBuilder"
 codesign --force --sign - "$app"
 echo "构建完成：$app"
