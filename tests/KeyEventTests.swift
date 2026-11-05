@@ -52,5 +52,33 @@ func runKeyEventTests() {
     check(!engine.englishMode && engine.code == "A", "real Shift-letter chord preserves Chinese mode")
     let shortcut = InputKey(event: event(.keyDown, key: 8, flags: .command, text: "c"))
     check(shortcut.shortcut && shortcut.text == "c", "real Command event preserves shortcut flag")
+
+    var privateEngine = InputEngine(lookup: { $0 == "q" ? ["重"] : [] }, readings: { _ in ["zhong", "chong"] })
+    var releases = ManualKeyReleases()
+    func send(_ code: UInt16, _ text: String = "") -> InputResult {
+        let wasEditing = privateEngine.editingManualPhrase
+        let result = privateEngine.handle(InputKey(event: event(.keyDown, key: code, text: text)))
+        releases.record(key: code, handled: result.handled, wasEditing: wasEditing, isEditing: privateEngine.editingManualPhrase)
+        return result
+    }
+    _ = send(6, "z"); _ = send(46, "m"); _ = send(49, " ")
+    check(releases.consume(key: 49), "space entering private editor consumes its release")
+    for key: UInt16 in [123, 124, 125, 126] {
+        check(send(key).handled && releases.consume(key: key), "empty editor swallows both down and up of every arrow key")
+    }
+    _ = send(12, "q"); _ = send(49, " "); _ = send(36, "\r")
+    for key: UInt16 in [123, 124, 125, 126] {
+        check(send(key).handled && releases.consume(key: key), "pronunciation list swallows both down and up of every arrow key")
+    }
+    check(send(53, "\u{1b}").handled && releases.consume(key: 53) && privateEngine.editingManualPhrase,
+          "escape from readings consumes release and returns to private editing")
+    check(send(53, "\u{1b}").handled && releases.consume(key: 53) && !privateEngine.editingManualPhrase && privateEngine.markedText.isEmpty,
+          "escape exiting private editing consumes release after the state has closed and removes marked placeholder")
+    check(!releases.consume(key: 53), "ordinary escape releases remain available after matching release is consumed")
+    releases.record(key: 125, handled: false, wasEditing: true, isEditing: false)
+    check(!releases.consume(key: 125), "declined shortcuts never swallow their key-up")
+    releases.record(key: 125, handled: true, wasEditing: true, isEditing: true)
+    releases.reset()
+    check(!releases.consume(key: 125), "deactivation clears old key-up tracking")
     print("PASS: native NSEvent conversion and Shift switching regressions")
 }

@@ -59,6 +59,7 @@ markdown.tapRightShift()
 markdown.type("```")
 check(markdown.output == "```我````", "Pinyin mode also preserves Markdown backticks")
 runInputEngineTests()
+runInlineManualPhraseTests()
 runKeyEventTests()
 try runPinyinTests()
 try runDictionaryStoreTests()
@@ -173,11 +174,22 @@ do {
     check(false, "missing pronunciation must fail")
 } catch {}
 try ManualReadings.save(word: "重行", spelling: "chong hang", to: manualURL)
-try ManualReadings.save(word: "重行", spelling: "chong hang", to: manualURL)
-try ManualReadings.save(word: "重行", spelling: "zhong xing", to: manualURL)
+for spelling in ["chong hang", "zhong xing"] {
+    do {
+        try ManualReadings.save(word: "重行", spelling: spelling, to: manualURL)
+        check(false, "existing manual words must reject all duplicate pronunciations")
+    } catch { check(error.localizedDescription == "词条已存在：重行", "duplicate save reports the existing word") }
+}
 let savedManualRows = try DictionaryRow.readUserText(manualURL)
-check(savedManualRows.count == 2, "manual save deduplicates and preserves alternative readings")
+check(savedManualRows.count == 1, "manual save rejects duplicate words regardless of pronunciation")
 let manualBeforeInvalidSave = try Data(contentsOf: manualURL)
+do {
+    try ManualReadings.save(word: "行重", spelling: "xing zhong", to: manualURL, isKnown: { $0 == "行重" })
+    check(false, "resident dictionary word must be rejected before writing")
+} catch { check(error.localizedDescription == "词条已存在：行重", "resident duplicates are reported") }
+let manualAfterDuplicate = try Data(contentsOf: manualURL)
+check(manualAfterDuplicate == manualBeforeInvalidSave, "rejecting resident duplicates preserves manual.txt")
+
 for (invalidWord, invalidSpelling) in [
     ("重\n行", "chong hang"), ("重\r\n行", "chong hang"),
     ("重\t行", "chong hang"), ("重\u{2028}行", "chong hang"),
@@ -201,4 +213,10 @@ let manualSnapshot = manualRoot.appendingPathComponent("snapshot")
 try manualStore.writeSnapshot(to: manualSnapshot)
 let mappedReadings = try PinyinDictionary(indexDirectory: manualSnapshot, count: manualStore.pinyin.count)
 check(mappedReadings.readings(for: "重") == ["zhong"], "character readings survive builder snapshot")
+let knowsLoaded = try manualStore.containsPhrase("重行")
+check(knowsLoaded, "known-word check includes loaded manual words")
+try ManualReadings.save(word: "行重", spelling: "xing zhong", to: manualURL)
+let knowsPending = try manualStore.containsPhrase("行重")
+check(knowsPending && manualStore.wubi.reverseLookup("行重") == nil,
+      "known-word check includes saved words before background reload")
 print("PASS: manual phrase pronunciation, persistence and runtime loading")

@@ -31,6 +31,13 @@ final class DictionaryStore {
         reload()
     }
 
+    func containsPhrase(_ word: String) throws -> Bool {
+        if wubi.reverseLookup(word) != nil { return true }
+        let manual = dataDirectory.appendingPathComponent("manual.txt")
+        guard FileManager.default.fileExists(atPath: manual.path) else { return false }
+        return try DictionaryRow.readUserText(manual).contains { $0.word == word }
+    }
+
     @discardableResult
     func reload() -> Bool {
         reloadGeneration &+= 1

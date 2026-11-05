@@ -41,7 +41,8 @@ struct ManualReadings {
         NSError(domain: "Wubi.ManualPhrase", code: 1, userInfo: [NSLocalizedDescriptionKey: text])
     }
 
-    static func save(word: String, spelling: String, to url: URL) throws {
+    static func save(word: String, spelling: String, to url: URL,
+                     isKnown: (String) throws -> Bool = { _ in false }) throws {
         let normalized = spelling.split(separator: " ").joined(separator: " ")
         _ = try ManualReadings(word: word, readings: { _ in ["a"] })
         guard normalized.split(separator: " ").count == word.count,
@@ -50,7 +51,9 @@ struct ManualReadings {
         }
         let exists = FileManager.default.fileExists(atPath: url.path)
         let rows = exists ? try DictionaryRow.readUserText(url) : []
-        guard !rows.contains(where: { $0.word == word && $0.code == normalized }) else { return }
+        guard try !isKnown(word), !rows.contains(where: { $0.word == word }) else {
+            throw error("词条已存在：" + word)
+        }
         var contents = exists ? try String(contentsOf: url, encoding: .utf8) : ""
         if !contents.isEmpty && !contents.hasSuffix("\n") { contents += "\n" }
         contents += word + "\t" + normalized + "\n"

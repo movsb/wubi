@@ -21,3 +21,14 @@ extension InputKey {
             otherModifier: flags.contains(.function))
     }
 }
+
+// Some clients bind commands to key-up. Swallow the matching release even when
+// the key-down (notably Escape) has just closed the private editor.
+struct ManualKeyReleases {
+    private var consumed = Set<UInt16>()
+    mutating func record(key: UInt16, handled: Bool, wasEditing: Bool, isEditing: Bool) {
+        if handled && (wasEditing || isEditing) { consumed.insert(key) }
+    }
+    mutating func consume(key: UInt16) -> Bool { consumed.remove(key) != nil }
+    mutating func reset() { consumed.removeAll() }
+}

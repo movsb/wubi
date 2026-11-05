@@ -90,7 +90,9 @@ class WubiInputController: IMKInputController {
         wubiCandidates: { DictionaryStore.shared.wubi.candidates(prefix: $0) },
         pinyinCandidates: { DictionaryStore.shared.pinyin.candidates(prefix: $0) },
         readings: { DictionaryStore.shared.pinyin.readings(for: $0) },
+        containsPhrase: { try DictionaryStore.shared.containsPhrase($0) },
         usage: WordUsageStore.shared)
+    private var manualKeyReleases = ManualKeyReleases()
     private var code: String { engine.code }
     private var page: Int { engine.page }
     private static var manualApplication: NSRunningApplication?
@@ -140,6 +142,7 @@ class WubiInputController: IMKInputController {
         let snapshot = FileManager.default.temporaryDirectory.appendingPathComponent("Wubi-readings-" + UUID().uuidString)
         do {
             try DictionaryStore.shared.pinyin.writeReadings(to: snapshot)
+            try DictionaryStore.shared.wubi.writeKnownWords(to: snapshot.appendingPathExtension("words"))
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.arguments = [snapshot.path, DictionaryStore.shared.dataDirectory.path,
                 String(NSWorkspace.shared.frontmostApplication?.processIdentifier ?? 0)]
@@ -151,6 +154,7 @@ class WubiInputController: IMKInputController {
                     Self.manualApplication = app
                     if let error {
                         try? FileManager.default.removeItem(at: snapshot)
+                        try? FileManager.default.removeItem(at: snapshot.appendingPathExtension("words"))
                         let alert = NSAlert()
                         alert.messageText = "无法打开手动造词"
                         alert.informativeText = error.localizedDescription
@@ -160,6 +164,7 @@ class WubiInputController: IMKInputController {
             }
         } catch {
             try? FileManager.default.removeItem(at: snapshot)
+            try? FileManager.default.removeItem(at: snapshot.appendingPathExtension("words"))
             let alert = NSAlert()
             alert.messageText = "无法打开手动造词"
             alert.informativeText = error.localizedDescription
@@ -231,15 +236,21 @@ class WubiInputController: IMKInputController {
     }
 
     override func recognizedEvents(_ sender: Any!) -> Int {
-        Int(NSEvent.EventTypeMask.keyDown.union(.flagsChanged).rawValue)
+        Int(NSEvent.EventTypeMask.keyDown.union(.keyUp).union(.flagsChanged).rawValue)
     }
 
     override func handle(_ event: NSEvent!, client sender: Any!) -> Bool {
         guard let event, let client = sender as? IMKTextInput,
-              event.type == .keyDown || event.type == .flagsChanged else { return false }
+              event.type == .keyDown || event.type == .keyUp || event.type == .flagsChanged else { return false }
+        if event.type == .keyUp { return manualKeyReleases.consume(key: event.keyCode) }
         // Modifier notifications can follow the Shift release that shows the mode hint.
         if event.type == .keyDown { dismissQuoteHint() }
+        let wasEditing = engine.editingManualPhrase
         let result = engine.handle(InputKey(event: event))
+        if event.type == .keyDown {
+            manualKeyReleases.record(key: event.keyCode, handled: result.handled,
+                                     wasEditing: wasEditing, isEditing: engine.editingManualPhrase)
+        }
         apply(result.effects, to: client)
         return result.handled
     }
@@ -247,12 +258,15 @@ class WubiInputController: IMKInputController {
     override func commitComposition(_ sender: Any!) {
         // InputMethodKit may request a commit after a mode switch even with no preedit.
         // That is not new input and must not dismiss the just-shown hint.
-        guard !code.isEmpty, let client = sender as? IMKTextInput else { return }
+        // The private editor's marked text is only a routing placeholder. Never
+        // commit it; deactivateServer removes it and mode switches preserve the draft.
+        guard !engine.editingManualPhrase, !code.isEmpty, let client = sender as? IMKTextInput else { return }
         dismissQuoteHint()
         apply(engine.commit(), to: client)
     }
 
     override func deactivateServer(_ sender: Any!) {
+        manualKeyReleases.reset()
         dismissQuoteHint()
         let effects = engine.deactivate()
         if let client = sender as? IMKTextInput { apply(effects, to: client) }
@@ -271,10 +285,11 @@ class WubiInputController: IMKInputController {
             case .savePhrase(let word, let spelling):
                 do {
                     try ManualReadings.save(word: word, spelling: spelling,
-                        to: DictionaryStore.shared.dataDirectory.appendingPathComponent("manual.txt"))
+                        to: DictionaryStore.shared.dataDirectory.appendingPathComponent("manual.txt"),
+                        isKnown: DictionaryStore.shared.containsPhrase)
                     apply(engine.finishPhrase(word), to: client)
                     DictionaryStore.shared.reloadInBackground { success in
-                        if !success { NSLog("词条已保存并上屏，但词库刷新失败，请重新加载") }
+                        if !success { NSLog("词条已保存，但词库刷新失败，请重新加载") }
                     }
                 } catch { showQuoteHint(error.localizedDescription, client: client) }
             case .refresh:
@@ -326,10 +341,11 @@ class WubiInputController: IMKInputController {
     }
 
     private func refresh(_ client: IMKTextInput) {
-        client.setMarkedText(code, selectionRange: NSRange(location: code.utf16.count, length: 0), replacementRange: missingRange)
-        guard !code.isEmpty else { panel?.orderOut(nil); return }
+        let marked = engine.markedText
+        client.setMarkedText(marked, selectionRange: NSRange(location: marked.utf16.count, length: 0), replacementRange: missingRange)
+        guard !code.isEmpty || engine.editingManualPhrase else { panel?.orderOut(nil); return }
         let visible = engine.visibleCandidates
-        guard !visible.isEmpty else { panel?.orderOut(nil); return }
+        guard !visible.isEmpty || engine.editingManualPhrase else { panel?.orderOut(nil); return }
         let start = page * InputEngine.pageSize
         let text = NSMutableAttributedString(string: "")
         let wordFont = NSFont.systemFont(ofSize: 13)
@@ -349,6 +365,13 @@ class WubiInputController: IMKInputController {
         ]
         var leftWidth: CGFloat = 0
         var remainingWidth: CGFloat = 0
+        if let buffer = engine.manualBuffer {
+            let mode = engine.pinyinMode ? "拼" : "五"
+            let title = "造词 [\(mode)]：\(buffer)" + (code.isEmpty ? "" : "  " + code)
+            let header = NSAttributedString(string: title + (visible.isEmpty ? "" : "\n"), attributes: wordAttributes)
+            text.append(header)
+            leftWidth = NSAttributedString(string: title, attributes: wordAttributes).size().width
+        }
         for (index, candidate) in visible.enumerated() {
             if index > 0 { text.append(NSAttributedString(string: "\n", attributes: wordAttributes)) }
             let rowStart = text.length
@@ -406,8 +429,10 @@ class WubiInputController: IMKInputController {
             .foregroundColor: CandidateColors.primary,
         ]), client: client)
         let dismissal = DispatchWorkItem { [weak self] in
-            self?.panel?.orderOut(nil)
-            self?.hintDismissal = nil
+            guard let self else { return }
+            self.panel?.orderOut(nil)
+            self.hintDismissal = nil
+            if self.engine.editingManualPhrase { self.refresh(client) }
         }
         hintDismissal = dismissal
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: dismissal)
@@ -426,7 +451,7 @@ class WubiInputController: IMKInputController {
             window.hidesOnDeactivate = false
             window.ignoresMouseEvents = false
             label.onDelete = { [weak self] word in
-                guard let self, !self.engine.collectingPhrase else { return }
+                guard let self, !self.engine.collectingPhrase, !self.engine.editingManualPhrase else { return }
                 self.deleteCandidate(word)
             }
             window.contentView?.addSubview(label)

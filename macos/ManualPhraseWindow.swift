@@ -9,10 +9,12 @@ final class ManualPhraseWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, 
     private var readings: ManualReadings?
     private var word = ""
     private let readingIndex: CandidateIndex
+    private let knownWords: CandidateIndex?
     private let dataDirectory: URL
     private let previousApp: NSRunningApplication?
 
-    init(readingIndex: CandidateIndex, dataDirectory: URL, previousApp: NSRunningApplication?) {
+    init(readingIndex: CandidateIndex, knownWords: CandidateIndex? = nil, dataDirectory: URL, previousApp: NSRunningApplication?) {
+        self.knownWords = knownWords
         self.readingIndex = readingIndex
         self.dataDirectory = dataDirectory
         self.previousApp = previousApp
@@ -110,6 +112,7 @@ final class ManualPhraseWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, 
             status.stringValue = "输入或粘贴汉字，双击拼音保存\n五笔编码会自动生成"
         } else {
             do {
+                guard knownWords?.lookup(current).isEmpty != false else { throw ManualReadings.error("词条已存在：" + current) }
                 readings = try ManualReadings(word: current, readings: { self.readingIndex.lookup(String($0)) })
                 status.stringValue = "共 \(readings!.count) 种拼音，双击一项保存\n五笔编码会自动生成"
             } catch { status.stringValue = error.localizedDescription }
@@ -151,7 +154,8 @@ final class ManualPhraseWindow: NSObject, NSWindowDelegate, NSTextViewDelegate, 
         }
         do {
             try ManualReadings.save(word: word, spelling: spelling,
-                to: dataDirectory.appendingPathComponent("manual.txt"))
+                to: dataDirectory.appendingPathComponent("manual.txt"),
+                isKnown: { self.knownWords?.lookup($0).isEmpty == false })
             DistributedNotificationCenter.default().postNotificationName(manualPhraseSavedNotification,
                 object: nil, userInfo: nil, deliverImmediately: true)
             window.close()

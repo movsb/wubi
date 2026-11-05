@@ -433,3 +433,73 @@ func runInputEngineTests() {
           "Shift-uppercase in English remains direct English input")
     print("PASS: preedit, mixed input, selection, punctuation, quote hints and Shift mode regressions")
 }
+
+func runInlineManualPhraseTests() {
+    var engine = InputEngine(lookup: { ["q": ["我"], "v": ["好"], "x": ["重"]][$0] ?? [] },
+        pinyinLookup: { $0 == "hao" ? ["好"] : [] },
+        readings: { ["我": ["wo"], "好": ["hao"], "重": ["zhong", "chong"]][String($0)] ?? [] })
+    func enter(_ engine: inout InputEngine) {
+        _ = engine.handle(InputKey(text: "z"))
+        _ = engine.handle(InputKey(text: "m"))
+        check(!engine.editingManualPhrase, "zm waits for explicit space confirmation")
+        let effects = engine.handle(InputKey(text: " ", code: 49)).effects
+        check(engine.manualBuffer == "" && engine.code.isEmpty && effects == [.refresh], "zm space enters a private empty editor")
+        check(engine.markedText == "\u{200b}", "private editor keeps a non-empty native composition for command-key routing")
+    }
+    enter(&engine)
+    for key in [InputKey(text: "1"), InputKey(text: "."), InputKey(code: 125), InputKey(text: "!"), InputKey(code: 48)] {
+        check(engine.handle(key).handled && engine.manualBuffer == "", "empty editor consumes selection, punctuation and navigation without leaking to the app")
+    }
+    _ = engine.handle(InputKey(text: "q"))
+    check(engine.handle(InputKey(code: 36)).effects == [.refresh] && engine.manualBuffer == "我" && !engine.choosingManualReading,
+          "return with unfinished code confirms a word into the private buffer first")
+    _ = engine.handle(InputKey(text: "x"))
+    check(engine.handle(InputKey(text: "1")).effects == [.refresh] && engine.manualBuffer == "我重", "numeric candidates append private text without app insertion")
+    _ = engine.handle(InputKey(code: 36))
+    check(engine.choosingManualReading && engine.visibleCandidates.map(\.text) == ["wo zhong", "wo chong"], "return on completed phrase opens lazy pronunciation candidates")
+    _ = engine.handle(InputKey(code: 125))
+    check(engine.selectedIndex == 1, "arrows navigate pronunciation candidates even with no active code")
+    check(engine.handle(InputKey(code: 49)).effects == [.savePhrase("我重", "wo chong")], "space saves the selected manual pronunciation")
+    check(engine.finishPhrase("我重") == [.refresh, .modeHint("已添加：我重")] && !engine.editingManualPhrase && engine.code.isEmpty,
+          "manual save exits without inserting the draft into the original app")
+    enter(&engine)
+    _ = engine.handle(InputKey(text: "q"))
+    _ = engine.handle(InputKey(code: 49))
+    _ = engine.handle(InputKey(code: 36))
+    _ = engine.handle(InputKey(code: 53))
+    check(engine.manualBuffer == "我" && !engine.choosingManualReading, "escape from pronunciations returns to editing and preserves the phrase")
+    _ = engine.handle(InputKey(code: 51))
+    check(engine.manualBuffer == "", "backspace removes the last committed character when code is empty")
+    _ = engine.handle(InputKey(code: 53))
+    check(!engine.editingManualPhrase && engine.markedText.isEmpty, "escape from editor discards the phrase and clears its routing placeholder")
+    enter(&engine)
+    _ = engine.handle(InputKey(text: "q"))
+    _ = engine.handle(InputKey(code: 51))
+    check(engine.manualBuffer == "" && engine.code.isEmpty, "backspace removes pending code before committed characters")
+    _ = engine.handle(InputKey(text: "unknown"))
+    check(engine.code.isEmpty, "unsupported text cannot enter the client app during manual editing")
+    _ = engine.handle(InputKey(text: "b"))
+    check(engine.handle(InputKey(code: 36)).effects == [.modeHint("请先选择有效的汉字候选，或删除当前编码")], "unknown code never becomes raw client text")
+    _ = engine.handle(InputKey(code: 51))
+    _ = engine.handle(InputKey(text: "q"))
+    _ = engine.handle(InputKey(code: 49))
+    _ = engine.handle(InputKey(code: 60, isModifierChange: true, rightShiftDown: true))
+    _ = engine.handle(InputKey(code: 60, isModifierChange: true))
+    check(engine.pinyinMode && engine.manualBuffer == "我", "right Shift changes input mode without leaving the private editor")
+    for c in "hao" { _ = engine.handle(InputKey(text: String(c))) }
+    _ = engine.handle(InputKey(code: 49))
+    check(engine.manualBuffer == "我好", "Pinyin selections append to the same phrase buffer")
+    check(engine.deactivate() == [.refresh] && !engine.editingManualPhrase, "deactivation discards a draft without committing it to another app")
+    engine = InputEngine(lookup: { _ in [] })
+    enter(&engine)
+    check(!engine.handle(InputKey(text: "c", shortcut: true)).handled && !engine.editingManualPhrase,
+          "application shortcuts cancel the private editor and remain available")
+    engine = InputEngine(lookup: { $0 == "q" ? ["我"] : [] }, readings: { _ in ["wo"] }, containsPhrase: { $0 == "我" })
+    enter(&engine)
+    _ = engine.handle(InputKey(text: "q"))
+    _ = engine.handle(InputKey(code: 49))
+    let duplicate = engine.handle(InputKey(code: 36))
+    check(duplicate.effects == [.modeHint("词条已存在：我")] && !engine.choosingManualReading && engine.manualBuffer == "我",
+          "existing dictionary words cannot enter pronunciation selection and remain editable")
+    print("PASS: zm inline editor, private text routing, pronunciation selection, cancellation and mode switching")
+}

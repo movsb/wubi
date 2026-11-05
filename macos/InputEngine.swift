@@ -117,9 +117,21 @@ struct InputEngine {
     var page: Int { selectedIndex / Self.pageSize }
     private(set) var externalRequest: UUID?
     private var externalCandidates: ExternalCandidates?
+    private(set) var manualBuffer: String?
+    var editingManualPhrase: Bool { manualBuffer != nil }
+    // Keep a native composition active so command keys stay routed through the IME.
+    // This placeholder is removed on every exit; the actual phrase stays private.
+    var markedText: String { editingManualPhrase ? "\u{200b}" : code }
+    var choosingManualReading: Bool { editingManualPhrase && phraseWord != nil }
+    private mutating func cancelManualPhrase() {
+        manualBuffer = nil
+        cancelCollection()
+        code = ""
+    }
     private var phraseWord: String?
     private var phraseReadings: ManualReadings?
     private let readings: (Character) -> [String]
+    private let containsPhrase: (String) throws -> Bool
     var collectingPhrase: Bool { externalRequest != nil || externalCandidates != nil || phraseWord != nil }
     private mutating func cancelCollection() {
         externalRequest = nil; externalCandidates = nil; phraseWord = nil; phraseReadings = nil
@@ -146,7 +158,9 @@ struct InputEngine {
          wubiCandidates: ((String) -> [InputCandidate])? = nil,
          pinyinCandidates: ((String) -> [InputCandidate])? = nil,
          readings: @escaping (Character) -> [String] = { _ in [] },
+         containsPhrase: @escaping (String) throws -> Bool = { _ in false },
          usage: WordUsageStore? = nil) {
+        self.containsPhrase = containsPhrase
         self.readings = readings
         self.usage = usage
         self.lookup = lookup
@@ -213,8 +227,52 @@ struct InputEngine {
         rightShiftTapPending = false
         // Let the client handle text and editing keys directly in English mode.
         if englishMode { return InputResult(handled: false) }
-        if key.shortcut { return InputResult(handled: false, effects: commit()) }
+        if key.shortcut {
+            if editingManualPhrase { cancelManualPhrase(); return InputResult(handled: false, effects: [.refresh]) }
+            return InputResult(handled: false, effects: commit())
+        }
         let text = key.text
+        if !key.capsLock, !pinyinMode, !editingManualPhrase, !collectingPhrase, code == "zm", key.code == 49 {
+            code = ""; selectedIndex = 0
+            manualBuffer = ""
+            return refresh()
+        }
+        if editingManualPhrase {
+            if key.code == 53 || (choosingManualReading && key.code == 51) {
+                if choosingManualReading { cancelCollection(); code = "" }
+                else { cancelManualPhrase() }
+                return refresh()
+            }
+            if !choosingManualReading {
+                if key.code == 51 && code.isEmpty {
+                    if !manualBuffer!.isEmpty { manualBuffer!.removeLast() }
+                    return refresh()
+                }
+                if [36, 76, 49].contains(key.code) {
+                    if !code.isEmpty {
+                        guard let word = candidate(at: selectedIndex)?.text else {
+                            return InputResult(handled: true, effects: [.modeHint("请先选择有效的汉字候选，或删除当前编码")])
+                        }
+                        return InputResult(handled: true, effects: [select(word)])
+                    }
+                    if key.code == 49 { return refresh() }
+                    do {
+                        let word = manualBuffer!
+                        guard try !containsPhrase(word) else { throw ManualReadings.error("词条已存在：" + word) }
+                        phraseReadings = try ManualReadings(word: word, readings: readings)
+                        phraseWord = word
+                        selectedIndex = 0
+                        return refresh()
+                    } catch { return InputResult(handled: true, effects: [.modeHint(error.localizedDescription)]) }
+                }
+            }
+            let navigation = [125, 126].contains(key.code) || [",", ".", "，", "。"].contains(text)
+            let selection = key.code == 49 || (Int(text).map { (1...5).contains($0) } ?? false)
+            let letter = text.utf8.count == 1 && text.utf8.allSatisfy { (97...122).contains($0) }
+            let editingKey = !choosingManualReading && (letter || key.code == 51 || (pinyinMode && text == "'"))
+            if key.capsLock || !(navigation || selection || editingKey) { return refresh() }
+            if (navigation || selection) && candidateCount == 0 { return refresh() }
+        }
         if !key.capsLock, !pinyinMode, (1...4).contains(code.count), text == "*",
            code.utf8.allSatisfy({ (97...122).contains($0) }) {
             cancelCollection()
@@ -283,7 +341,7 @@ struct InputEngine {
             }
             return InputResult(handled: true, effects: effects)
         }
-        guard !code.isEmpty else { return InputResult(handled: false) }
+        guard !code.isEmpty || choosingManualReading else { return InputResult(handled: false) }
         switch key.code {
         case 53:
             code = ""; selectedIndex = 0
@@ -312,6 +370,7 @@ struct InputEngine {
     }
 
     mutating func commit() -> [InputEffect] {
+        if editingManualPhrase { cancelManualPhrase(); return [.refresh] }
         guard !code.isEmpty else { return [] }
         if collectingPhrase { cancelCollection(); return [insert(code)] }
         guard let selected = candidate(at: min(selectedIndex, max(0, candidateCount - 1)))?.text else { return [insert(code)] }
@@ -319,6 +378,7 @@ struct InputEngine {
     }
 
     mutating func finishPhrase(_ word: String) -> [InputEffect] {
+        if editingManualPhrase { cancelManualPhrase(); return [.refresh, .modeHint("已添加：" + word)] }
         usage?.record(word)
         return [insert(word)]
     }
@@ -345,11 +405,13 @@ struct InputEngine {
                 rightShiftTapPending = false
                 if shouldToggle {
                     var effects: [InputEffect] = []
-                    if !code.isEmpty { effects.append(insert(code)) }
+                    if editingManualPhrase { code = ""; cancelCollection() }
+                    else if !code.isEmpty { effects.append(insert(code)) }
                     pinyinMode = englishMode || !pinyinMode
                     englishMode = false
                     punctuation.reset()
-                    effects.append(.modeHint(pinyinMode ? "拼" : "五"))
+                    if editingManualPhrase { effects.append(.refresh) }
+                    else { effects.append(.modeHint(pinyinMode ? "拼" : "五")) }
                     return InputResult(handled: true, effects: effects)
                 }
             }
@@ -370,7 +432,8 @@ struct InputEngine {
             if shouldToggle {
                 var effects: [InputEffect] = []
                 // Preserve an unfinished word as typed when explicitly switching to English.
-                if !code.isEmpty { effects.append(insert(code)) }
+                if editingManualPhrase { cancelManualPhrase(); effects.append(.refresh) }
+                else if !code.isEmpty { effects.append(insert(code)) }
                 englishMode.toggle()
                 punctuation.reset()
                 effects.append(.modeHint(englishMode ? "英" : (pinyinMode ? "拼" : "五")))
@@ -388,6 +451,11 @@ struct InputEngine {
     private func refresh() -> InputResult { InputResult(handled: true, effects: [.refresh]) }
 
     private mutating func select(_ word: String) -> InputEffect {
+        if editingManualPhrase {
+            manualBuffer! += word
+            code = ""; selectedIndex = 0
+            return .refresh
+        }
         usage?.record(word)
         return insert(word)
     }
