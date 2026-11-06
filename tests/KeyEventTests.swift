@@ -61,8 +61,8 @@ func runKeyEventTests() {
         releases.record(key: code, handled: result.handled, wasEditing: wasEditing, isEditing: privateEngine.editingManualPhrase)
         return result
     }
-    _ = send(6, "z"); _ = send(46, "m"); _ = send(49, " ")
-    check(releases.consume(key: 49), "space entering private editor consumes its release")
+    _ = send(6, "z"); _ = send(46, "m")
+    check(releases.consume(key: 46), "m entering private editor consumes its release")
     for key: UInt16 in [123, 124, 125, 126] {
         check(send(key).handled && releases.consume(key: key), "empty editor swallows both down and up of every arrow key")
     }

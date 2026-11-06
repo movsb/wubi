@@ -232,7 +232,7 @@ struct InputEngine {
             return InputResult(handled: false, effects: commit())
         }
         let text = key.text
-        if !key.capsLock, !pinyinMode, !editingManualPhrase, !collectingPhrase, code == "zm", key.code == 49 {
+        if !key.capsLock, !pinyinMode, !editingManualPhrase, !collectingPhrase, code == "z", text == "m" {
             code = ""; selectedIndex = 0
             manualBuffer = ""
             return refresh()

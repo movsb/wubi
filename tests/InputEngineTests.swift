@@ -440,10 +440,9 @@ func runInlineManualPhraseTests() {
         readings: { ["我": ["wo"], "好": ["hao"], "重": ["zhong", "chong"]][String($0)] ?? [] })
     func enter(_ engine: inout InputEngine) {
         _ = engine.handle(InputKey(text: "z"))
-        _ = engine.handle(InputKey(text: "m"))
-        check(!engine.editingManualPhrase, "zm waits for explicit space confirmation")
-        let effects = engine.handle(InputKey(text: " ", code: 49)).effects
-        check(engine.manualBuffer == "" && engine.code.isEmpty && effects == [.refresh], "zm space enters a private empty editor")
+        check(!engine.editingManualPhrase, "z alone does not enter the private editor")
+        let effects = engine.handle(InputKey(text: "m")).effects
+        check(engine.manualBuffer == "" && engine.code.isEmpty && effects == [.refresh], "zm immediately enters a private empty editor")
         check(engine.markedText == "\u{200b}", "private editor keeps a non-empty native composition for command-key routing")
     }
     enter(&engine)
