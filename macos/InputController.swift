@@ -33,6 +33,12 @@ private final class CandidateBackgroundView: NSView {
 private final class CandidateLabel: NSView {
     static let candidateWord = NSAttributedString.Key("WubiCandidateWord")
     var onDelete: ((String) -> Void)?
+    private var chosenWord: String?
+    private var menuClientPID: pid_t?
+    var trackingMenuForCurrentApp: Bool {
+        guard let menuClientPID else { return false }
+        return NSWorkspace.shared.frontmostApplication?.processIdentifier == menuClientPID
+    }
     private let storage = NSTextStorage()
     private let layout = NSLayoutManager()
     private let container = NSTextContainer(size: .zero)
@@ -60,7 +66,7 @@ private final class CandidateLabel: NSView {
         layout.drawBackground(forGlyphRange: glyphs, at: NSPoint(x: 2, y: 0))
         layout.drawGlyphs(forGlyphRange: glyphs, at: NSPoint(x: 2, y: 0))
     }
-    override func menu(for event: NSEvent) -> NSMenu? {
+    private func candidateMenu(for event: NSEvent) -> NSMenu? {
         prepareLayout()
         let point = convert(event.locationInWindow, from: nil)
         let location = NSPoint(x: point.x - 2, y: point.y)
@@ -76,9 +82,27 @@ private final class CandidateLabel: NSView {
         menu.addItem(item)
         return menu
     }
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            rightMouseDown(with: event)
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        guard onDelete != nil, let menu = candidateMenu(for: event) else { return }
+        chosenWord = nil
+        menuClientPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+        let word = trackingMenuForCurrentApp ? chosenWord : nil
+        menuClientPID = nil
+        chosenWord = nil
+        if let word { onDelete?(word) }
+    }
+
     @objc private func deleteCandidate(_ sender: NSMenuItem) {
-        guard let word = sender.representedObject as? String else { return }
-        onDelete?(word)
+        chosenWord = sender.representedObject as? String
     }
 }
 
@@ -214,12 +238,15 @@ class WubiInputController: IMKInputController {
         // That is not new input and must not dismiss the just-shown hint.
         // The private editor's marked text is only a routing placeholder. Never
         // commit it; deactivateServer removes it and mode switches preserve the draft.
-        guard !engine.editingManualPhrase, !code.isEmpty, let client = sender as? IMKTextInput else { return }
+        // Tracking our own context menu can interrupt the client's input session.
+        guard !label.trackingMenuForCurrentApp,
+              !engine.editingManualPhrase, !code.isEmpty, let client = sender as? IMKTextInput else { return }
         dismissQuoteHint()
         apply(engine.commit(), to: client)
     }
 
     override func deactivateServer(_ sender: Any!) {
+        guard !label.trackingMenuForCurrentApp else { return }
         manualKeyReleases.reset()
         dismissQuoteHint()
         let effects = engine.deactivate()
@@ -297,6 +324,10 @@ class WubiInputController: IMKInputController {
     private func refresh(_ client: IMKTextInput) {
         let marked = engine.markedText
         client.setMarkedText(marked, selectionRange: NSRange(location: marked.utf16.count, length: 0), replacementRange: missingRange)
+        refreshCandidatePanel(client)
+    }
+
+    private func refreshCandidatePanel(_ client: IMKTextInput) {
         guard !code.isEmpty || engine.editingManualPhrase else { panel?.orderOut(nil); return }
         let visible = engine.visibleCandidates
         guard !visible.isEmpty || engine.editingManualPhrase else { panel?.orderOut(nil); return }
@@ -346,8 +377,10 @@ class WubiInputController: IMKInputController {
                 text.append(remaining)
                 remainingWidth = max(remainingWidth, remaining.size().width)
             }
-            text.addAttribute(CandidateLabel.candidateWord, value: candidate.text,
-                              range: NSRange(location: rowStart, length: text.length - rowStart))
+            if !engine.collectingPhrase && !engine.editingManualPhrase {
+                text.addAttribute(CandidateLabel.candidateWord, value: candidate.text,
+                                  range: NSRange(location: rowStart, length: text.length - rowStart))
+            }
         }
         let contentWidth = ceil(leftWidth + (remainingWidth > 0 ? 12 + remainingWidth : 0))
         present(text, client: client, contentWidth: contentWidth)
@@ -362,10 +395,10 @@ class WubiInputController: IMKInputController {
                               userInfo: [NSLocalizedDescriptionKey: "排除词条已保存，但词库重新加载失败"])
             }
             engine.refreshCandidates()
-            refresh(currentClient)
+            refreshCandidatePanel(currentClient)
         } catch {
             NSLog("删除词条失败：%@", error.localizedDescription)
-            showQuoteHint("删除词条失败", client: currentClient)
+            NSSound.beep()
         }
     }
 
