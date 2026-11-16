@@ -15,6 +15,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"wubi/internal/unicodesearch"
 )
 
 func scan(path string, consume func(string)) error {
@@ -243,8 +245,20 @@ func queryDetailed(resources, data, code string) (queryResponse, error) {
 }
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "unicode" {
+		results, err := unicodesearch.Search(os.Args[2], 50)
+		if err == nil {
+			err = json.NewEncoder(os.Stdout).Encode(results)
+		}
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) != 4 && !(len(os.Args) == 6 && os.Args[4] == "--index-dir") {
 		fmt.Fprintln(os.Stderr, "usage: WubiExternalQuery RESOURCE_DIRECTORY USER_DIRECTORY CODE [--index-dir DIRECTORY]")
+		fmt.Fprintln(os.Stderr, "       WubiExternalQuery unicode QUERY")
 		os.Exit(2)
 	}
 	words, err := queryDetailed(os.Args[1], os.Args[2], os.Args[3])

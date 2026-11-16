@@ -108,6 +108,13 @@ private final class CandidateLabel: NSView {
 
 @objc(WubiInputController)
 class WubiInputController: IMKInputController {
+    private struct UnicodeSearchResult: Decodable {
+        let text: String
+        let codePoints: [String]
+        let name: String
+    }
+
+    private static let unicodeSearchQueue = DispatchQueue(label: "Wubi.unicode-search", qos: .userInitiated)
     private lazy var engine = InputEngine(
         lookup: { DictionaryStore.shared.wubi.lookup($0) },
         pinyinLookup: { DictionaryStore.shared.pinyin.lookup($0) },
@@ -263,6 +270,8 @@ class WubiInputController: IMKInputController {
                 panel?.orderOut(nil)
             case .queryExternal(let code, let request):
                 queryExternal(code, request: request, client: client)
+            case .queryUnicode(let query, let request):
+                queryUnicode(query, request: request, client: client)
             case .savePhrase(let word, let spelling):
                 do {
                     try ManualReadings.save(word: word, spelling: spelling,
@@ -279,6 +288,37 @@ class WubiInputController: IMKInputController {
                 NSSound.beep()
             case .quoteHint(let text), .modeHint(let text):
                 showQuoteHint(text, client: client)
+            }
+        }
+    }
+
+    private func queryUnicode(_ query: String, request: UUID, client: IMKTextInput) {
+        let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/WubiExternalQuery")
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { [weak self] in
+            guard let self, self.engine.unicodeSearchRequest == request else { return }
+            Self.unicodeSearchQueue.async { [weak self] in
+                let process = Process()
+                let output = Pipe()
+                process.executableURL = executable
+                process.arguments = ["unicode", query]
+                process.standardOutput = output
+                let response = Result {
+                    try process.run()
+                    let data = output.fileHandleForReading.readDataToEndOfFile()
+                    process.waitUntilExit()
+                    guard process.terminationStatus == 0 else {
+                        throw ManualReadings.error("Unicode 搜索失败")
+                    }
+                    return try JSONDecoder().decode([UnicodeSearchResult].self, from: data).map {
+                        InputCandidate(text: $0.text, remainingCode: $0.codePoints.joined(separator: " ") + "\t" + $0.name)
+                    }
+                }
+                DispatchQueue.main.async {
+                    let candidates = (try? response.get()) ?? []
+                    guard let self, self.engine.receiveUnicode(candidates, request: request) else { return }
+                    self.refresh(client)
+                    if case .failure = response { self.showQuoteHint("Unicode 搜索失败", client: client) }
+                }
             }
         }
     }
@@ -352,6 +392,7 @@ class WubiInputController: IMKInputController {
         ]
         var leftWidth: CGFloat = 0
         var remainingWidth: CGFloat = 0
+        var codePointWidth: CGFloat = 0
         if let buffer = engine.manualBuffer {
             let mode = engine.pinyinMode ? "拼" : "五"
             let title = "造词 [\(mode)]：\(buffer)" + (code.isEmpty ? "" : "  " + code)
@@ -370,22 +411,42 @@ class WubiInputController: IMKInputController {
             let word = NSAttributedString(string: candidate.text, attributes: attributes)
             text.append(word)
             leftWidth = max(leftWidth, number.size().width + word.size().width)
-            let annotation = engine.pinyinMode
+            let annotation = engine.pinyinMode && !engine.searchingUnicode
                 ? DictionaryStore.shared.wubi.reverseLookup(candidate.text) ?? ""
                 : candidate.remainingCode
-            if !annotation.isEmpty {
+            if engine.searchingUnicode {
+                let columns = annotation.split(separator: "\t", maxSplits: 1)
+                let codePoints = NSAttributedString(string: String(columns.first ?? ""), attributes: numberAttributes)
+                let name = NSAttributedString(string: String(columns.last ?? ""), attributes: numberAttributes)
+                let tab = NSAttributedString(string: "\t", attributes: numberAttributes)
+                text.append(tab)
+                text.append(codePoints)
+                text.append(tab)
+                text.append(name)
+                codePointWidth = max(codePointWidth, codePoints.size().width)
+                remainingWidth = max(remainingWidth, name.size().width)
+            } else if !annotation.isEmpty {
                 let remaining = NSAttributedString(string: annotation, attributes: numberAttributes)
                 text.append(NSAttributedString(string: "\t", attributes: numberAttributes))
                 text.append(remaining)
                 remainingWidth = max(remainingWidth, remaining.size().width)
             }
-            if !engine.collectingPhrase && !engine.editingManualPhrase {
+            if !engine.collectingPhrase && !engine.editingManualPhrase && !engine.searchingUnicode {
                 text.addAttribute(CandidateLabel.candidateWord, value: candidate.text,
                                   range: NSRange(location: rowStart, length: text.length - rowStart))
             }
         }
-        let contentWidth = ceil(leftWidth + (remainingWidth > 0 ? 12 + remainingWidth : 0))
-        present(text, client: client, contentWidth: contentWidth)
+        if engine.searchingUnicode {
+            let codePointStart = ceil(leftWidth) + 12
+            let nameStart = codePointStart + ceil(codePointWidth) + 12
+            let tabStops = [codePointStart, nameStart].map {
+                NSTextTab(textAlignment: .left, location: $0, options: [:])
+            }
+            present(text, client: client, contentWidth: nameStart + remainingWidth, tabStops: tabStops)
+        } else {
+            let contentWidth = ceil(leftWidth + (remainingWidth > 0 ? 12 + remainingWidth : 0))
+            present(text, client: client, contentWidth: contentWidth)
+        }
     }
 
     private func deleteCandidate(_ word: String) {
@@ -427,7 +488,8 @@ class WubiInputController: IMKInputController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: dismissal)
     }
 
-    private func present(_ text: NSAttributedString, client: IMKTextInput, contentWidth: CGFloat? = nil) {
+    private func present(_ text: NSAttributedString, client: IMKTextInput,
+                         contentWidth: CGFloat? = nil, tabStops: [NSTextTab]? = nil) {
         if panel == nil {
             let window = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             window.hasShadow = true
@@ -458,7 +520,10 @@ class WubiInputController: IMKInputController {
         if contentWidth != nil, text.length > 0 {
             let style = (text.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle
                 ?? NSMutableParagraphStyle()
-            style.tabStops = [NSTextTab(textAlignment: .right, location: max(1, width - 16), options: [:])]
+            style.tabStops = tabStops ?? [NSTextTab(textAlignment: .right, location: max(1, width - 16), options: [:])]
+            if let lastTab = tabStops?.last, lastTab.location < width - 16 {
+                style.headIndent = lastTab.location
+            }
             rendered.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: rendered.length))
         }
         label.attributedStringValue = rendered

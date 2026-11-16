@@ -40,7 +40,7 @@ struct Session {
         for effect in effects {
             switch effect {
             case .insert(let text): output += text; marked = ""
-            case .queryExternal, .savePhrase: break
+            case .queryExternal, .queryUnicode, .savePhrase: break
             case .refresh: marked = engine.code
             case .quoteHint(let text): hints.append(text)
             case .modeHint(let text): modeHints.append(text)
@@ -160,6 +160,31 @@ func runInputEngineTests() {
     check(session.beeps == beeps + 3 && session.marked == "u+10FFFF", "A seventh digit beeps without changing the code")
     session.deactivate()
     check(session.marked.isEmpty && session.output == "⌘😀⌥⌘", "Deactivation discards unconfirmed Unicode input")
+
+    session = Session()
+    session.type("u?right arrow")
+    let firstSearch = session.engine.unicodeSearchRequest!
+    let rightArrow = InputCandidate(text: "→", remainingCode: "U+2192")
+    let doubleArrow = InputCandidate(text: "⇒", remainingCode: "U+21D2")
+    check(session.marked == "u?right arrow" && session.output.isEmpty, "Unicode search keeps spaces in the query")
+    session.key(code: 51)
+    let updatedSearch = session.engine.unicodeSearchRequest!
+    check(!session.engine.receiveUnicode([rightArrow], request: firstSearch), "Unicode search ignores stale results")
+    let searchResults = Array(repeating: rightArrow, count: InputEngine.pageSize) + [doubleArrow]
+    check(session.engine.receiveUnicode(searchResults, request: updatedSearch), "Unicode search shows current results")
+    session.key(".")
+    check(session.engine.page == 1 && session.marked == "u?right arro", "Period advances the search page without editing the query")
+    session.key(",")
+    check(session.engine.page == 0 && session.marked == "u?right arro", "Comma returns to the previous search page")
+    session.key(".")
+    session.key(code: 125)
+    session.key("\r", code: 36)
+    check(session.marked.isEmpty && session.output == "⇒", "Return inserts the selected search result")
+    session.type("u?command")
+    let cancelledSearch = session.engine.unicodeSearchRequest!
+    session.key(code: 53)
+    check(session.marked.isEmpty && !session.engine.receiveUnicode([rightArrow], request: cancelledSearch),
+          "Escape exits Unicode search and rejects pending results")
 
     session = Session()
     session.type("imde")

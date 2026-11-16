@@ -94,6 +94,7 @@ enum InputEffect: Equatable {
     case insert(String)
     case refresh
     case queryExternal(String, UUID)
+    case queryUnicode(String, UUID)
     case savePhrase(String, String)
     case quoteHint(String)
     case modeHint(String)
@@ -118,6 +119,18 @@ struct InputEngine {
     var page: Int { selectedIndex / Self.pageSize }
     private(set) var externalRequest: UUID?
     private var externalCandidates: ExternalCandidates?
+    private(set) var unicodeSearchRequest: UUID?
+    private var unicodeSearchCandidates: [InputCandidate] = []
+    var searchingUnicode: Bool {
+        !editingManualPhrase && !collectingPhrase && (code.hasPrefix("u?") || code.hasPrefix("U?"))
+    }
+    mutating func receiveUnicode(_ candidates: [InputCandidate], request: UUID) -> Bool {
+        guard searchingUnicode, unicodeSearchRequest == request else { return false }
+        unicodeSearchRequest = nil
+        unicodeSearchCandidates = candidates
+        selectedIndex = 0
+        return true
+    }
     private(set) var manualBuffer: String?
     var editingManualPhrase: Bool { manualBuffer != nil }
     // Keep a native composition active so command keys stay routed through the IME.
@@ -206,6 +219,7 @@ struct InputEngine {
     }
     private var ordinaryCandidates: [InputCandidate] {
         guard !englishMode else { return [] }
+        if searchingUnicode { return unicodeSearchCandidates }
         if pinyinMode {
             guard code.utf8.allSatisfy({ (97...122).contains($0) || $0 == 39 }) else { return [] }
             let values = pinyinCandidates?(code) ?? pinyinLookup(code).map { InputCandidate(text: $0, remainingCode: "") }
@@ -234,12 +248,13 @@ struct InputEngine {
         }
         let text = key.text
         if !key.capsLock, !editingManualPhrase, !collectingPhrase,
-           (code == "u" || code == "U"), text == "+" {
+           (code == "u" || code == "U"), text == "+" || text == "?" {
             code += text
             selectedIndex = 0
             return refresh()
         }
         if enteringUnicode { return handleUnicode(key) }
+        if searchingUnicode { return handleUnicodeSearch(key) }
         if code == "z", key.code == 48, text == "\t", !key.capsLock,
            !key.leftShiftDown, !key.rightShiftDown, !key.otherModifier,
            !editingManualPhrase, !collectingPhrase {
@@ -384,9 +399,11 @@ struct InputEngine {
 
     mutating func commit() -> [InputEffect] {
         if editingManualPhrase { cancelManualPhrase(); return [.refresh] }
-        if enteringUnicode {
+        if enteringUnicode || searchingUnicode {
             code = ""
             selectedIndex = 0
+            unicodeSearchRequest = nil
+            unicodeSearchCandidates = []
             return [.refresh]
         }
         guard !code.isEmpty else { return [] }
@@ -424,7 +441,7 @@ struct InputEngine {
                 if shouldToggle {
                     var effects: [InputEffect] = []
                     if editingManualPhrase { code = ""; cancelCollection() }
-                    else if enteringUnicode { effects += commit() }
+                    else if enteringUnicode || searchingUnicode { effects += commit() }
                     else if !code.isEmpty { effects.append(insert(code)) }
                     pinyinMode = englishMode || !pinyinMode
                     englishMode = false
@@ -452,7 +469,7 @@ struct InputEngine {
                 var effects: [InputEffect] = []
                 // Preserve an unfinished word as typed when explicitly switching to English.
                 if editingManualPhrase { cancelManualPhrase(); effects.append(.refresh) }
-                else if enteringUnicode { effects += commit() }
+                else if enteringUnicode || searchingUnicode { effects += commit() }
                 else if !code.isEmpty { effects.append(insert(code)) }
                 englishMode.toggle()
                 punctuation.reset()
@@ -492,6 +509,47 @@ struct InputEngine {
             code += key.text
         }
         return refresh()
+    }
+
+    private mutating func handleUnicodeSearch(_ key: InputKey) -> InputResult {
+        if key.text == "," || key.text == "." {
+            selectPage(page + (key.text == "," ? -1 : 1))
+            return refresh()
+        }
+        switch key.code {
+        case 53:
+            return InputResult(handled: true, effects: commit())
+        case 36, 76:
+            guard let choice = candidate(at: selectedIndex) else {
+                return InputResult(handled: true, effects: [.beep])
+            }
+            unicodeSearchRequest = nil
+            unicodeSearchCandidates = []
+            return InputResult(handled: true, effects: [insert(choice.text)])
+        case 126:
+            selectedIndex = max(0, selectedIndex - 1)
+            return refresh()
+        case 125:
+            selectedIndex = min(max(0, candidateCount - 1), selectedIndex + 1)
+            return refresh()
+        case 51:
+            code.removeLast()
+        default:
+            guard code.utf8.count < 130, key.text.utf8.count == 1,
+                  let byte = key.text.utf8.first, (32...126).contains(byte) else {
+                return InputResult(handled: true, effects: [.beep])
+            }
+            code += key.text
+        }
+        selectedIndex = 0
+        unicodeSearchRequest = nil
+        unicodeSearchCandidates = []
+        guard searchingUnicode else { return refresh() }
+        let query = code.dropFirst(2).trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return refresh() }
+        let request = UUID()
+        unicodeSearchRequest = request
+        return InputResult(handled: true, effects: [.refresh, .queryUnicode(query, request)])
     }
 
     private mutating func select(_ word: String) -> InputEffect {
