@@ -93,7 +93,7 @@ struct InputKey {
 enum InputEffect: Equatable {
     case insert(String)
     case refresh
-    case queryExternal(String, UUID)
+    case queryExternal(String, UUID, pinyin: Bool = false)
     case queryUnicode(String, UUID)
     case savePhrase(String, String)
     case quoteHint(String)
@@ -301,12 +301,13 @@ struct InputEngine {
             if key.capsLock || !(navigation || selection || editingKey) { return refresh() }
             if (navigation || selection) && candidateCount == 0 { return refresh() }
         }
-        if !key.capsLock, !pinyinMode, (1...4).contains(code.count), text == "*",
-           code.utf8.allSatisfy({ (97...122).contains($0) }) {
+        if !key.capsLock, text == "*", !code.isEmpty, (pinyinMode || code.count <= 4),
+           code.utf8.allSatisfy({ (97...122).contains($0) || (pinyinMode && $0 == 39) }),
+           !code.utf8.allSatisfy({ $0 == 39 }) {
             cancelCollection()
             let request = UUID()
             externalRequest = request
-            return InputResult(handled: true, effects: [.refresh, .queryExternal(code, request)])
+            return InputResult(handled: true, effects: [.refresh, .queryExternal(code, request, pinyin: pinyinMode)])
         }
         if collectingPhrase {
             if key.code == 53 || key.code == 51 {

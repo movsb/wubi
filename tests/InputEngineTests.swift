@@ -100,6 +100,16 @@ func runInputEngineTests() {
     let save = collector.handle(InputKey(text: " ", code: 49))
     check(save.effects == [.savePhrase("重重", "chong zhong")], "confirm pronunciation saves without premature insertion")
     check(collector.finishPhrase("重重") == [.insert("重重")] && collector.code.isEmpty, "saved word commits and clears composition")
+    var pinyinCollector = Session(pinyinLookup: { _ in ["西安"] })
+    pinyinCollector.tapRightShift()
+    pinyinCollector.type("xi'an")
+    let pinyinQuery = pinyinCollector.key("*")
+    check(pinyinCollector.engine.externalRequest.map {
+        pinyinQuery.effects.contains(.queryExternal("xi'an", $0, pinyin: true))
+    } == true, "asterisk queries long pinyin with an explicit syllable boundary")
+    _ = pinyinCollector.key(code: 53)
+    check(pinyinCollector.engine.code == "xi'an" && pinyinCollector.engine.externalRequest == nil,
+          "cancelling pinyin expansion restores the original spelling")
     var iceCollector = InputEngine(lookup: { _ in [] })
     _ = iceCollector.handle(InputKey(text: "a"))
     _ = iceCollector.handle(InputKey(text: "*"))

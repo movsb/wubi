@@ -268,8 +268,8 @@ class WubiInputController: IMKInputController {
             case .insert(let text):
                 client.insertText(text, replacementRange: missingRange)
                 panel?.orderOut(nil)
-            case .queryExternal(let code, let request):
-                queryExternal(code, request: request, client: client)
+            case .queryExternal(let code, let request, let pinyin):
+                queryExternal(code, request: request, pinyin: pinyin, client: client)
             case .queryUnicode(let query, let request):
                 queryUnicode(query, request: request, client: client)
             case .savePhrase(let word, let spelling):
@@ -323,7 +323,7 @@ class WubiInputController: IMKInputController {
         }
     }
 
-    private func queryExternal(_ code: String, request: UUID, client: IMKTextInput) {
+    private func queryExternal(_ code: String, request: UUID, pinyin: Bool, client: IMKTextInput) {
         let resources = Bundle.main.resourceURL!
         let executable = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/WubiExternalQuery")
         let directory = DictionaryStore.shared.dataDirectory
@@ -337,7 +337,7 @@ class WubiInputController: IMKInputController {
             do {
                 let process = Process()
                 process.executableURL = executable
-                process.arguments = [resources.path, directory.path, code, "--index-dir", resultDirectory.path]
+                process.arguments = (pinyin ? ["pinyin"] : []) + [resources.path, directory.path, code, "--index-dir", resultDirectory.path]
                 process.standardOutput = FileHandle.nullDevice
                 process.standardError = FileHandle.nullDevice
                 try process.run()

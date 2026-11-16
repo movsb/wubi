@@ -124,3 +124,44 @@ func TestQueryIndices(t *testing.T) {
 		t.Fatal("empty query must produce a valid empty index")
 	}
 }
+
+func TestPinyinExpansion(t *testing.T) {
+	root := t.TempDir()
+	resources, data := filepath.Join(root, "resources"), filepath.Join(root, "user")
+	writeFixture(t, filepath.Join(resources, "cn_dicts"), "words.txt", "西安市\txi an shi\n先\txian\n西安\txi an\n")
+	writeFixture(t, filepath.Join(data, "cn_dicts"), "words.txt", "西安\txi an\n西岸\txi an\n")
+	writeFixture(t, data, "excluded.txt", "西岸\n")
+	for code, want := range map[string][]string{
+		"xi'an": {"西安", "西安市"},
+		"xian":  {"先", "西安", "西安市"},
+	} {
+		got, err := queryByMode(resources, data, code, true)
+		if err != nil || !reflect.DeepEqual(got.Words, want) {
+			t.Fatalf("%q: got %v, %v; want %v", code, got.Words, err, want)
+		}
+	}
+}
+
+func TestWeightOnlyDictionary(t *testing.T) {
+	root := t.TempDir()
+	resources, data := filepath.Join(root, "resources"), filepath.Join(root, "user")
+	ice := filepath.Join(resources, "cn_dicts")
+	writeFixture(t, ice, "a-weighted.txt", "重山\t100\n重山路\t100\n重山未知\t100\n")
+	writeFixture(t, ice, "z-readings.txt", "重\tzhong\n重\tchong\n山\tshan\n路\tlu\n")
+	writeFixture(t, resources, "wubi.txt", "重\ttgjf\n山\tmmmm\n路\tkhtk\n")
+	for _, tc := range []struct {
+		code   string
+		pinyin bool
+		want   []string
+	}{
+		{"chong'sh", true, []string{"重山", "重山路"}},
+		{"zhongshan", true, []string{"重山", "重山路"}},
+		{"chongshanlu", true, []string{"重山路"}},
+		{"tgmm", false, []string{"重山"}},
+	} {
+		got, err := queryByMode(resources, data, tc.code, tc.pinyin)
+		if err != nil || !reflect.DeepEqual(got.Words, tc.want) {
+			t.Fatalf("%q: got %v, %v; want %v", tc.code, got.Words, err, tc.want)
+		}
+	}
+}

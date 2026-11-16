@@ -12,6 +12,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -86,13 +87,68 @@ func phraseCode(word string, roots map[rune]string) string {
 	return roots[chars[0]][:1] + roots[chars[1]][:1] + roots[chars[2]][:1] + roots[chars[len(chars)-1]][:1]
 }
 
+// Match a prefix against single-character readings without enumerating complete
+// pronunciation combinations. Positions track only the unconsumed query.
+func matchReadings(word, code, separator string, readings map[string][]string) (match, exact bool) {
+	positions := []int{0}
+	var next []int
+	first := true
+	for _, char := range word {
+		options := readings[string(char)]
+		if len(options) == 0 {
+			return false, false
+		}
+		next = next[:0]
+		for _, pos := range positions {
+			for _, option := range options {
+				if !first {
+					option = separator + option
+				}
+				if pos >= len(code) {
+					end := len(code) + 1
+					if !slices.Contains(next, end) {
+						next = append(next, end)
+					}
+					break
+				}
+				remaining := code[pos:]
+				end := pos + len(option)
+				if strings.HasPrefix(option, remaining) && end > len(code) {
+					end = len(code) + 1 // Prefix consumed, but the full spelling is longer.
+				} else if !strings.HasPrefix(remaining, option) {
+					continue
+				}
+				if !slices.Contains(next, end) {
+					next = append(next, end)
+				}
+			}
+		}
+		if len(next) == 0 {
+			return false, false
+		}
+		positions, next = next, positions
+		first = false
+	}
+	return slices.Contains(positions, len(code)) || slices.Contains(positions, len(code)+1), slices.Contains(positions, len(code))
+}
+
 func query(resources, data, code string) ([]string, error) {
 	result, err := queryDetailed(resources, data, code)
 	return result.Words, err
 }
 
 func queryDetailed(resources, data, code string) (queryResponse, error) {
-	if !validCode(code) {
+	return queryByMode(resources, data, code, false)
+}
+
+func queryByMode(resources, data, code string, pinyin bool) (queryResponse, error) {
+	if pinyin {
+		if strings.Trim(code, "'") == "" || strings.ContainsFunc(code, func(c rune) bool {
+			return c != '\'' && (c < 'a' || c > 'z')
+		}) {
+			return queryResponse{}, fmt.Errorf("拼音编码只能包含小写字母和音节分隔符")
+		}
+	} else if !validCode(code) {
 		return queryResponse{}, fmt.Errorf("编码必须为一至四个小写字母")
 	}
 	excluded := map[string]bool{}
@@ -115,7 +171,11 @@ func queryDetailed(resources, data, code string) (queryResponse, error) {
 	rootSeen := map[string]bool{}
 	// Only resident Wubi roots determine generated codes, as in the Swift merger.
 
-	for i, directory := range []string{resources, filepath.Join(resources, "external"), filepath.Join(data, "external")} {
+	var wubiDirectories []string
+	if !pinyin {
+		wubiDirectories = []string{resources, filepath.Join(resources, "external"), filepath.Join(data, "external")}
+	}
+	for i, directory := range wubiDirectories {
 		files, err := os.ReadDir(directory)
 		if os.IsNotExist(err) && i > 0 {
 			continue
@@ -167,7 +227,12 @@ func queryDetailed(resources, data, code string) (queryResponse, error) {
 		}
 	}
 	// Stream the large pinyin dictionaries; retain only matching words and single-character readings.
+	separator := ""
+	if pinyin && strings.Contains(code, "'") {
+		separator = "'"
+	}
 	allReadings := map[string][]string{}
+	var weightedDictionaries []string
 	for _, directory := range []string{filepath.Join(resources, "cn_dicts"), filepath.Join(data, "cn_dicts")} {
 		files, err := os.ReadDir(directory)
 		if os.IsNotExist(err) {
@@ -180,13 +245,21 @@ func queryDetailed(resources, data, code string) (queryResponse, error) {
 			if file.IsDir() || !strings.HasSuffix(file.Name(), ".txt") {
 				continue
 			}
-			err := scan(filepath.Join(directory, file.Name()), func(line string) {
+			path := filepath.Join(directory, file.Name())
+			hasUnannotated := false
+			err := scan(path, func(line string) {
 				if strings.HasPrefix(line, "#") {
 					return
 				}
 				fields := strings.Split(line, "\t")
 				if len(fields) < 2 || fields[0] == "" || excluded[fields[0]] {
 					return
+				}
+				if len(fields) == 2 {
+					if _, err := strconv.ParseFloat(fields[1], 64); err == nil {
+						hasUnannotated = true
+						return
+					}
 				}
 				syllables := strings.Fields(strings.ReplaceAll(fields[1], "'", " "))
 				if len(syllables) != len([]rune(fields[0])) {
@@ -212,7 +285,12 @@ func queryDetailed(resources, data, code string) (queryResponse, error) {
 						allReadings[fields[0]] = append(values, syllables[0])
 					}
 				}
-				spelling := phraseCode(fields[0], roots)
+				var spelling string
+				if pinyin {
+					spelling = strings.Join(syllables, separator)
+				} else {
+					spelling = phraseCode(fields[0], roots)
+				}
 				if spelling != "" && strings.HasPrefix(spelling, code) {
 					matches = append(matches, match{fields[0], spelling == code})
 				}
@@ -220,6 +298,35 @@ func queryDetailed(resources, data, code string) (queryResponse, error) {
 			if err != nil {
 				return queryResponse{}, err
 			}
+			if hasUnannotated {
+				weightedDictionaries = append(weightedDictionaries, path)
+			}
+		}
+	}
+
+	// Weight-only rows need the readings gathered from all dictionary files above.
+	for _, path := range weightedDictionaries {
+		err := scan(path, func(line string) {
+			if strings.HasPrefix(line, "#") {
+				return
+			}
+			word, weight, ok := strings.Cut(line, "\t")
+			if !ok || word == "" || excluded[word] {
+				return
+			}
+			if _, err := strconv.ParseFloat(weight, 64); err != nil {
+				return
+			}
+			if pinyin {
+				if matched, exact := matchReadings(word, code, separator, allReadings); matched {
+					matches = append(matches, match{word, exact})
+				}
+			} else if spelling := phraseCode(word, roots); strings.HasPrefix(spelling, code) {
+				matches = append(matches, match{word, spelling == code})
+			}
+		})
+		if err != nil {
+			return queryResponse{}, err
 		}
 	}
 
@@ -256,15 +363,20 @@ func main() {
 		}
 		return
 	}
-	if len(os.Args) != 4 && !(len(os.Args) == 6 && os.Args[4] == "--index-dir") {
-		fmt.Fprintln(os.Stderr, "usage: WubiExternalQuery RESOURCE_DIRECTORY USER_DIRECTORY CODE [--index-dir DIRECTORY]")
+	args := os.Args[1:]
+	pinyin := len(args) > 0 && args[0] == "pinyin"
+	if pinyin {
+		args = args[1:]
+	}
+	if len(args) != 3 && !(len(args) == 5 && args[3] == "--index-dir") {
+		fmt.Fprintln(os.Stderr, "usage: WubiExternalQuery [pinyin] RESOURCE_DIRECTORY USER_DIRECTORY CODE [--index-dir DIRECTORY]")
 		fmt.Fprintln(os.Stderr, "       WubiExternalQuery unicode QUERY")
 		os.Exit(2)
 	}
-	words, err := queryDetailed(os.Args[1], os.Args[2], os.Args[3])
+	words, err := queryByMode(args[0], args[1], args[2], pinyin)
 	if err == nil {
-		if len(os.Args) == 6 {
-			err = writeQueryIndices(os.Args[5], words)
+		if len(args) == 5 {
+			err = writeQueryIndices(args[4], words)
 		} else {
 			err = json.NewEncoder(os.Stdout).Encode(words)
 		}
