@@ -275,6 +275,8 @@ class WubiInputController: IMKInputController {
                 } catch { showQuoteHint(error.localizedDescription, client: client) }
             case .refresh:
                 refresh(client)
+            case .beep:
+                NSSound.beep()
             case .quoteHint(let text), .modeHint(let text):
                 showQuoteHint(text, client: client)
             }

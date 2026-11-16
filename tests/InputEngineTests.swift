@@ -4,6 +4,7 @@ struct Session {
     var engine: InputEngine
     var output = ""
     var marked = ""
+    var beeps = 0
     var hints: [String] = []
     var modeHints: [String] = []
 
@@ -43,6 +44,7 @@ struct Session {
             case .refresh: marked = engine.code
             case .quoteHint(let text): hints.append(text)
             case .modeHint(let text): modeHints.append(text)
+            case .beep: beeps += 1
             }
         }
     }
@@ -121,6 +123,43 @@ func runInputEngineTests() {
     check(session.output.isEmpty && session.marked == "imde", "unique four-code candidate must not auto-commit")
     session.key(" ", code: 49)
     check(session.output == "没有" && session.marked.isEmpty, "Chinese space selects without extra space")
+
+    session = Session(wubiCandidates: { code in
+        code == "u" ? [InputCandidate(text: "立", remainingCode: "")] : []
+    })
+    session.type("u+2318")
+    check(session.output.isEmpty && session.marked == "u+2318", "Unicode prefix takes precedence over a Wubi candidate")
+    session.key("\r", code: 36)
+    check(session.output == "⌘" && session.marked.isEmpty, "Return commits the Unicode scalar")
+    session.tapRightShift()
+    session.type("U+1F600")
+    session.key(" ", code: 49)
+    check(session.output == "⌘😀", "Pinyin mode accepts uppercase hexadecimal and supplementary scalars")
+    session.type("u+2324")
+    session.key(code: 51)
+    session.key("5")
+    session.key("\r", code: 76)
+    check(session.output == "⌘😀⌥", "Backspace edits the scalar and keypad Enter commits it")
+    session.type("u+2318")
+    session.key(code: 53)
+    check(session.marked.isEmpty && session.output == "⌘😀⌥", "Escape cancels Unicode input")
+    for invalid in ["u+", "u+D800", "u+110000"] {
+        let beeps = session.beeps
+        session.type(invalid)
+        session.key("\r", code: 36)
+        check(session.beeps == beeps + 1 && session.marked == invalid && session.output == "⌘😀⌥",
+              "Invalid Unicode confirmation beeps and preserves the composition")
+        session.key(code: 53)
+    }
+    let beeps = session.beeps
+    session.type("u++23G18")
+    check(session.beeps == beeps + 2 && session.marked == "u+2318", "Non-hexadecimal keys beep without changing the code")
+    session.key(" ", code: 49)
+    check(session.output == "⌘😀⌥⌘", "The retained hexadecimal digits still commit")
+    session.type("u+10FFFF0")
+    check(session.beeps == beeps + 3 && session.marked == "u+10FFFF", "A seventh digit beeps without changing the code")
+    session.deactivate()
+    check(session.marked.isEmpty && session.output == "⌘😀⌥⌘", "Deactivation discards unconfirmed Unicode input")
 
     session = Session()
     session.type("imde")

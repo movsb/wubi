@@ -97,6 +97,7 @@ enum InputEffect: Equatable {
     case savePhrase(String, String)
     case quoteHint(String)
     case modeHint(String)
+    case beep
 }
 
 struct InputResult {
@@ -232,6 +233,13 @@ struct InputEngine {
             return InputResult(handled: false, effects: commit())
         }
         let text = key.text
+        if !key.capsLock, !editingManualPhrase, !collectingPhrase,
+           (code == "u" || code == "U"), text == "+" {
+            code += text
+            selectedIndex = 0
+            return refresh()
+        }
+        if enteringUnicode { return handleUnicode(key) }
         if code == "z", key.code == 48, text == "\t", !key.capsLock,
            !key.leftShiftDown, !key.rightShiftDown, !key.otherModifier,
            !editingManualPhrase, !collectingPhrase {
@@ -376,6 +384,11 @@ struct InputEngine {
 
     mutating func commit() -> [InputEffect] {
         if editingManualPhrase { cancelManualPhrase(); return [.refresh] }
+        if enteringUnicode {
+            code = ""
+            selectedIndex = 0
+            return [.refresh]
+        }
         guard !code.isEmpty else { return [] }
         if collectingPhrase { cancelCollection(); return [insert(code)] }
         guard let selected = candidate(at: min(selectedIndex, max(0, candidateCount - 1)))?.text else { return [insert(code)] }
@@ -411,6 +424,7 @@ struct InputEngine {
                 if shouldToggle {
                     var effects: [InputEffect] = []
                     if editingManualPhrase { code = ""; cancelCollection() }
+                    else if enteringUnicode { effects += commit() }
                     else if !code.isEmpty { effects.append(insert(code)) }
                     pinyinMode = englishMode || !pinyinMode
                     englishMode = false
@@ -438,6 +452,7 @@ struct InputEngine {
                 var effects: [InputEffect] = []
                 // Preserve an unfinished word as typed when explicitly switching to English.
                 if editingManualPhrase { cancelManualPhrase(); effects.append(.refresh) }
+                else if enteringUnicode { effects += commit() }
                 else if !code.isEmpty { effects.append(insert(code)) }
                 englishMode.toggle()
                 punctuation.reset()
@@ -454,6 +469,30 @@ struct InputEngine {
     }
 
     private func refresh() -> InputResult { InputResult(handled: true, effects: [.refresh]) }
+
+    private var enteringUnicode: Bool {
+        !editingManualPhrase && !collectingPhrase && (code.hasPrefix("u+") || code.hasPrefix("U+"))
+    }
+
+    private mutating func handleUnicode(_ key: InputKey) -> InputResult {
+        let rejected = InputResult(handled: true, effects: [.beep])
+        switch key.code {
+        case 53:
+            code = ""
+        case 51:
+            code.removeLast()
+        case 36, 76, 49:
+            guard let value = UInt32(code.dropFirst(2), radix: 16),
+                  let scalar = Unicode.Scalar(value) else { return rejected }
+            return InputResult(handled: true, effects: [insert(String(scalar))])
+        default:
+            guard code.utf8.count < 8, key.text.utf8.count == 1, let byte = key.text.utf8.first,
+                  (48...57).contains(byte) || (65...70).contains(byte) || (97...102).contains(byte)
+            else { return rejected }
+            code += key.text
+        }
+        return refresh()
+    }
 
     private mutating func select(_ word: String) -> InputEffect {
         if editingManualPhrase {

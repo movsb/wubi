@@ -6,6 +6,14 @@ if [ ! -d "$destination" ]; then
   echo '请先运行 ./scripts/install-macos.sh 安装并在系统设置添加「桃酥」。' >&2
   exit 1
 fi
+# InputMethodKit launches the menu command without the shell's Homebrew PATH.
+if ! command -v go >/dev/null 2>&1; then
+  export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+fi
+if ! command -v go >/dev/null 2>&1; then
+  echo '找不到 Go。请安装 Go 后重新构建并加载桃酥。' >&2
+  exit 1
+fi
 # Build everything before interrupting the active input method.
 ./scripts/build-macos.sh
 xcrun swiftc -module-cache-path "$PWD/build/module-cache" \
