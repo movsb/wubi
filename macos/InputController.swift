@@ -405,9 +405,10 @@ class WubiInputController: IMKInputController {
             let rowStart = text.length
             let number = NSAttributedString(string: "\(index + 1) ", attributes: numberAttributes)
             text.append(number)
-            var attributes = wordAttributes
-            attributes[.foregroundColor] = start + index == engine.selectedIndex
+            let foregroundColor = start + index == engine.selectedIndex
                 ? CandidateColors.primary : CandidateColors.secondary
+            var attributes = wordAttributes
+            attributes[.foregroundColor] = foregroundColor
             let word = NSAttributedString(string: candidate.text, attributes: attributes)
             text.append(word)
             leftWidth = max(leftWidth, number.size().width + word.size().width)
@@ -416,8 +417,10 @@ class WubiInputController: IMKInputController {
                 : candidate.remainingCode
             if engine.searchingUnicode {
                 let columns = annotation.split(separator: "\t", maxSplits: 1)
-                let codePoints = NSAttributedString(string: String(columns.first ?? ""), attributes: numberAttributes)
-                let name = NSAttributedString(string: String(columns.last ?? ""), attributes: numberAttributes)
+                var annotationAttributes = numberAttributes
+                annotationAttributes[.foregroundColor] = foregroundColor
+                let codePoints = NSAttributedString(string: String(columns.first ?? ""), attributes: annotationAttributes)
+                let name = NSAttributedString(string: String(columns.last ?? ""), attributes: annotationAttributes)
                 let tab = NSAttributedString(string: "\t", attributes: numberAttributes)
                 text.append(tab)
                 text.append(codePoints)
