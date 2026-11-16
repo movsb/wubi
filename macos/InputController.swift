@@ -369,6 +369,17 @@ class WubiInputController: IMKInputController {
         refreshCandidatePanel(client)
     }
 
+    private func unicodeCandidatePreview(_ text: String) -> String {
+        let scalars = text.unicodeScalars
+        if scalars.allSatisfy({ $0.properties.isDefaultIgnorableCodePoint || $0.properties.isWhitespace }) {
+            return "⟨不可见⟩"
+        }
+        // Isolate the preview from the left-to-right code point and name columns.
+        let category = scalars.first?.properties.generalCategory
+        let combining = category == .nonspacingMark || category == .spacingMark || category == .enclosingMark
+        return "\u{2066}" + (combining ? "◌" : "") + text + "\u{2069}"
+    }
+
     private func refreshCandidatePanel(_ client: IMKTextInput) {
         guard !code.isEmpty || engine.editingManualPhrase else { panel?.orderOut(nil); return }
         let visible = engine.visibleCandidates
@@ -379,6 +390,7 @@ class WubiInputController: IMKInputController {
         let numberFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = 3
+        if engine.searchingUnicode { paragraphStyle.baseWritingDirection = .leftToRight }
         let wordAttributes: [NSAttributedString.Key: Any] = [
             .font: wordFont,
             .foregroundColor: CandidateColors.primary,
@@ -409,7 +421,8 @@ class WubiInputController: IMKInputController {
                 ? CandidateColors.primary : CandidateColors.secondary
             var attributes = wordAttributes
             attributes[.foregroundColor] = foregroundColor
-            let word = NSAttributedString(string: candidate.text, attributes: attributes)
+            let preview = engine.searchingUnicode ? unicodeCandidatePreview(candidate.text) : candidate.text
+            let word = NSAttributedString(string: preview, attributes: attributes)
             text.append(word)
             leftWidth = max(leftWidth, number.size().width + word.size().width)
             let annotation = engine.pinyinMode && !engine.searchingUnicode
