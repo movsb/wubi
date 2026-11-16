@@ -237,6 +237,20 @@ func runInputEngineTests() {
     session.type("q")
     session.key("\t", code: 48)
     check(session.output == " \nA我\t", "Tab commits candidate and passes through")
+
+    for pinyinMode in [false, true] {
+        session = Session(pinyinLookup: { $0 == "z" ? ["在"] : [] })
+        if pinyinMode { session.tapRightShift() }
+        session.type("z")
+        let tab = session.key("\t", code: 48)
+        check(tab.handled && tab.effects == [.insert("\t")] && session.output == "\t"
+              && session.engine.code.isEmpty && session.marked.isEmpty,
+              "z followed by Tab inserts a literal tab and clears composition")
+        check(!session.key("\t", code: 48).handled, "Tab without a prefix passes through")
+        session.type("zz")
+        check(!session.key("\t", code: 48).handled, "Tab after a longer code passes through")
+    }
+
     session = Session()
     session.type("a")
     session.key("", code: 126)

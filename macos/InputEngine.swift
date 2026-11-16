@@ -232,6 +232,11 @@ struct InputEngine {
             return InputResult(handled: false, effects: commit())
         }
         let text = key.text
+        if code == "z", key.code == 48, text == "\t", !key.capsLock,
+           !key.leftShiftDown, !key.rightShiftDown, !key.otherModifier,
+           !editingManualPhrase, !collectingPhrase {
+            return InputResult(handled: true, effects: [insert("\t")])
+        }
         if !key.capsLock, !pinyinMode, !editingManualPhrase, !collectingPhrase, code == "z", text == "m" {
             code = ""; selectedIndex = 0
             manualBuffer = ""
