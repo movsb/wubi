@@ -6,7 +6,7 @@
 
 ## 雾凇拼音扩展词库
 
-`cn_dicts/` 由 `get-ice-dicts.sh` 从 [iDvel/rime-ice](https://github.com/iDvel/rime-ice/tree/main/cn_dicts) 下载，保留上游原始词库、来源注释及仓库 `LICENSE`。构建时将转换后的 TXT 和上游 `LICENSE` 一同打包到应用资源的 `cn_dicts/`，仅供 Go 扩展查词程序按需读取。
+`cn_dicts/` 由 `get-ice-dicts.sh` 从 [iDvel/rime-ice](https://github.com/iDvel/rime-ice/tree/main/cn_dicts) 下载，保留上游原始词库、来源注释及仓库 `LICENSE`。构建时将转换后的 TXT 嵌入 Go 扩展查词程序供按需读取，上游 `LICENSE` 随应用放入 `Resources/licenses/rime-ice-LICENSE.txt`。
 
 ## Unicode 搜索数据
 

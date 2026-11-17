@@ -87,7 +87,7 @@
 WubiExternalQuery RESOURCE_DIRECTORY USER_DIRECTORY CODE [--index-dir DIRECTORY]
 ```
 
-输入为一至四个小写字母编码。程序读取资源根目录的 `wubi*.txt`、资源目录的 `external/*.txt` 和用户目录的 `external/*.txt`；后两者不存在时跳过。格式为 `词语<Tab>五笔码[<Tab>权重]`，权重不参与扩展结果排序。另外读取资源目录和用户目录的 `cn_dicts/*.txt`，依据常驻五笔单字码按现有组词规则生成编码。文件流式扫描，不构建完整词库索引。返回 UTF-8 JSON 对象 `{"words": ["词语"], "readings": {"字": ["zi"]}}` 到 stdout，精确匹配优先，其后按文件名和行顺序排列，同词去重；无匹配返回 `{"words": [], "readings": {}}`。遵守用户目录的 `excluded.txt`。失败时 stderr 输出错误并以非零状态退出。`readings` 仅包含匹配词涉及的单字读音，由输入法与现有单字读音合并，用于后续拼音组合选择。程序不写用户数据。
+输入为一至四个小写字母编码。程序依次读取资源根目录的 `wubi*.txt`、二进制内嵌的五笔扩展词库，以及用户目录的 `external/*.txt`。旧版资源目录仍可读取，顺序在内嵌词库和用户词库之间。格式为 `词语<Tab>五笔码[<Tab>权重]`，权重不参与扩展结果排序。另外读取内嵌的雾凇词库与用户目录的 `cn_dicts/*.txt`，依据常驻五笔单字码按现有组词规则生成编码。文件流式扫描，不构建完整词库索引。返回 UTF-8 JSON 对象 `{"words": ["词语"], "readings": {"字": ["zi"]}}` 到 stdout，精确匹配优先，其后按文件名和行顺序排列，同词去重；无匹配返回 `{"words": [], "readings": {}}`。遵守用户目录的 `excluded.txt`。失败时 stderr 输出错误并以非零状态退出。`readings` 仅包含匹配词涉及的单字读音，由输入法与现有单字读音合并，用于后续拼音组合选择。程序不写用户数据。
 
 输入法在后台使用查询开始时的五笔快照反查过滤已有词（覆盖所有编码），并读取 `manual.txt` 排除已保存、尚未完成后台刷新或仅加入拼音的个人词条。过滤保持外部结果的顺序。macOS 调用时指定 `--index-dir`，Go 在指定目录写入 `words.index`、`readings.index`，stdout 不输出整批 JSON。两个文件使用与 `CandidateIndex.swift` 相同的 `WUBIIDX1` 格式：8 字节魔数、两个 little-endian UInt64（记录数、字节区长度），每条记录为四个 UInt32（词语偏移、词语长度、编码偏移、编码长度）及一个 Double 权重，末尾为 UTF-8 字节区。词语文件的编码为空以保留查询顺序；读音文件按单字编码排序。查询失败时丢弃整个临时目录。
 
@@ -100,5 +100,5 @@ WubiExternalQuery RESOURCE_DIRECTORY USER_DIRECTORY CODE [--index-dir DIRECTORY]
 ```bash
 go test ./scripts/external-query
 # 检查 Windows 编译（无需 Windows 运行环境）
-GOOS=windows GOARCH=amd64 go build -o build/WubiExternalQuery.exe ./scripts/external-query
+GOOS=windows GOARCH=amd64 ./scripts/build-external-query.sh build/WubiExternalQuery.exe
 ```

@@ -20,26 +20,18 @@ xcrun swift -module-cache-path "$PWD/build/module-cache" scripts/generate-menu-i
   "$app/Contents/Resources/CookieTemplate.tiff" "$PWD/build/menu-icon-preview.png"
 printf '%s\n' "$PWD" > "$app/Contents/Resources/DevelopmentSourcePath.txt"
 rm -f "$app/Contents/Resources/"*.dict.yaml "$app/Contents/Resources/"wubi*.txt "$app/Contents/Resources/pinyin_simp.txt"
-mkdir -p "$app/Contents/Resources/external"
-rm -f "$app/Contents/Resources/external/"*.txt
+rm -rf "$app/Contents/Resources/external" "$app/Contents/Resources/cn_dicts"
 for dict in "${dicts[@]}"; do
   case "$dict" in
     wubi86_jidian.txt|pinyin_simp.txt) cp "$dict" "$app/Contents/Resources/" ;;
-    *) cp "$dict" "$app/Contents/Resources/external/" ;;
   esac
 done
-# Pinyin expansion dictionaries stay out of the resident DictionaryStore inputs.
-rm -rf "$app/Contents/Resources/cn_dicts"
-if [ -d cn_dicts ]; then
-  mkdir -p "$app/Contents/Resources/cn_dicts"
-  ice_dicts=(cn_dicts/*.txt)
-  if [ ${#ice_dicts[@]} -gt 0 ]; then
-    cp "${ice_dicts[@]}" "$app/Contents/Resources/cn_dicts/"
-    cp cn_dicts/LICENSE "$app/Contents/Resources/cn_dicts/LICENSE"
-  fi
-fi
 rm -rf "$app/Contents/Resources/licenses"
 ditto licenses "$app/Contents/Resources/licenses"
+ice_dicts=(cn_dicts/*.txt)
+if [ ${#ice_dicts[@]} -gt 0 ]; then
+  cp cn_dicts/LICENSE "$app/Contents/Resources/licenses/rime-ice-LICENSE.txt"
+fi
 xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
   -target "$(uname -m)-apple-macosx13.0" -framework Cocoa -framework InputMethodKit \
   macos/CandidateIndex.swift macos/DictionaryRow.swift macos/Dictionary.swift macos/PinyinDictionary.swift macos/DictionaryMerger.swift macos/DictionaryStore.swift macos/Punctuation.swift macos/ManualPhrase.swift macos/InputEngine.swift macos/KeyEvent.swift macos/InputController.swift macos/main.swift \
@@ -49,7 +41,7 @@ xcrun swiftc -O -module-cache-path "$PWD/build/module-cache" \
   macos/CandidateIndex.swift macos/DictionaryRow.swift macos/Dictionary.swift \
   macos/PinyinDictionary.swift macos/DictionaryMerger.swift macos/DictionaryStore.swift \
   scripts/dictionary-builder/main.swift -o "$app/Contents/MacOS/WubiDictionaryBuilder"
-GOCACHE="$PWD/build/go-cache" go build -o "$app/Contents/MacOS/WubiExternalQuery" ./scripts/external-query
+./scripts/build-external-query.sh "$app/Contents/MacOS/WubiExternalQuery"
 codesign --force --sign - "$app/Contents/MacOS/WubiExternalQuery"
 # Remove the retired helper from app bundles built by an older version.
 rm -rf "$app/Contents/Helpers/ManualPhrase.app"

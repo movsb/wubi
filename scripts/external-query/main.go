@@ -5,12 +5,15 @@ package main
 
 import (
 	"bufio"
+	"embed"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -20,8 +23,16 @@ import (
 	"wubi/internal/unicodesearch"
 )
 
-func scan(path string, consume func(string)) error {
-	f, err := os.Open(path)
+//go:embed dictionaries
+var bundledDictionaries embed.FS
+
+type dictionaryPath struct {
+	files fs.FS
+	name  string
+}
+
+func (source dictionaryPath) scan(consume func(string)) error {
+	f, err := source.files.Open(source.name)
 	if err != nil {
 		return err
 	}
@@ -152,7 +163,9 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 		return queryResponse{}, fmt.Errorf("编码必须为一至四个小写字母")
 	}
 	excluded := map[string]bool{}
-	err := scan(filepath.Join(data, "excluded.txt"), func(line string) {
+	userFiles := os.DirFS(data)
+	resourceFiles := os.DirFS(resources)
+	err := (dictionaryPath{userFiles, "excluded.txt"}).scan(func(line string) {
 		word := strings.Trim(strings.TrimSpace(strings.SplitN(line, "#", 2)[0]), "\ufeff")
 		if word != "" {
 			excluded[word] = true
@@ -171,25 +184,31 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 	rootSeen := map[string]bool{}
 	// Only resident Wubi roots determine generated codes, as in the Swift merger.
 
-	var wubiDirectories []string
+	var wubiDirectories []dictionaryPath
 	if !pinyin {
-		wubiDirectories = []string{resources, filepath.Join(resources, "external"), filepath.Join(data, "external")}
+		wubiDirectories = []dictionaryPath{
+			{resourceFiles, "."},
+			{bundledDictionaries, "dictionaries/external"},
+			{resourceFiles, "external"},
+			{userFiles, "external"},
+		}
 	}
 	for i, directory := range wubiDirectories {
-		files, err := os.ReadDir(directory)
+		files, err := fs.ReadDir(directory.files, directory.name)
 		if os.IsNotExist(err) && i > 0 {
 			continue
 		}
 		if err != nil {
 			return queryResponse{}, err
 		}
-		// os.ReadDir returns entries sorted by name, preserving a stable source order.
+		// fs.ReadDir returns entries sorted by name, preserving a stable source order.
 		for _, file := range files {
 			name := file.Name()
 			if file.IsDir() || !strings.HasSuffix(name, ".txt") || (i == 0 && !strings.HasPrefix(name, "wubi")) {
 				continue
 			}
-			err := scan(filepath.Join(directory, name), func(line string) {
+			source := dictionaryPath{directory.files, path.Join(directory.name, name)}
+			err := source.scan(func(line string) {
 				if strings.HasPrefix(line, "#") || strings.HasPrefix(line, " ") {
 					return
 				}
@@ -232,9 +251,14 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 		separator = "'"
 	}
 	allReadings := map[string][]string{}
-	var weightedDictionaries []string
-	for _, directory := range []string{filepath.Join(resources, "cn_dicts"), filepath.Join(data, "cn_dicts")} {
-		files, err := os.ReadDir(directory)
+	var weightedDictionaries []dictionaryPath
+	pinyinDirectories := []dictionaryPath{
+		{bundledDictionaries, "dictionaries/cn_dicts"},
+		{resourceFiles, "cn_dicts"},
+		{userFiles, "cn_dicts"},
+	}
+	for _, directory := range pinyinDirectories {
+		files, err := fs.ReadDir(directory.files, directory.name)
 		if os.IsNotExist(err) {
 			continue
 		}
@@ -245,9 +269,9 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 			if file.IsDir() || !strings.HasSuffix(file.Name(), ".txt") {
 				continue
 			}
-			path := filepath.Join(directory, file.Name())
+			source := dictionaryPath{directory.files, path.Join(directory.name, file.Name())}
 			hasUnannotated := false
-			err := scan(path, func(line string) {
+			err := source.scan(func(line string) {
 				if strings.HasPrefix(line, "#") {
 					return
 				}
@@ -299,14 +323,14 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 				return queryResponse{}, err
 			}
 			if hasUnannotated {
-				weightedDictionaries = append(weightedDictionaries, path)
+				weightedDictionaries = append(weightedDictionaries, source)
 			}
 		}
 	}
 
 	// Weight-only rows need the readings gathered from all dictionary files above.
-	for _, path := range weightedDictionaries {
-		err := scan(path, func(line string) {
+	for _, source := range weightedDictionaries {
+		err := source.scan(func(line string) {
 			if strings.HasPrefix(line, "#") {
 				return
 			}

@@ -1,0 +1,1 @@
+`scripts/build-external-query.sh` stages the bundled TXT dictionaries here in a temporary copy of the Go package. This file lets standalone builds and tests use the same source without downloading dictionaries.
