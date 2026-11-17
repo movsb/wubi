@@ -255,6 +255,13 @@ struct InputEngine {
         }
         if enteringUnicode { return handleUnicode(key) }
         if searchingUnicode { return handleUnicodeSearch(key) }
+        if !key.capsLock, !editingManualPhrase, !collectingPhrase,
+           (code == "p" || code == "P"), text == "?" {
+            code += text
+            selectedIndex = 0
+            return refresh()
+        }
+        if enteringPinyinTones { return handlePinyinTones(key) }
         if code == "z", key.code == 48, text == "\t", !key.capsLock,
            !key.leftShiftDown, !key.rightShiftDown, !key.otherModifier,
            !editingManualPhrase, !collectingPhrase {
@@ -400,7 +407,7 @@ struct InputEngine {
 
     mutating func commit() -> [InputEffect] {
         if editingManualPhrase { cancelManualPhrase(); return [.refresh] }
-        if enteringUnicode || searchingUnicode {
+        if enteringUnicode || searchingUnicode || enteringPinyinTones {
             code = ""
             selectedIndex = 0
             unicodeSearchRequest = nil
@@ -442,7 +449,7 @@ struct InputEngine {
                 if shouldToggle {
                     var effects: [InputEffect] = []
                     if editingManualPhrase { code = ""; cancelCollection() }
-                    else if enteringUnicode || searchingUnicode { effects += commit() }
+                    else if enteringUnicode || searchingUnicode || enteringPinyinTones { effects += commit() }
                     else if !code.isEmpty { effects.append(insert(code)) }
                     pinyinMode = englishMode || !pinyinMode
                     englishMode = false
@@ -470,7 +477,7 @@ struct InputEngine {
                 var effects: [InputEffect] = []
                 // Preserve an unfinished word as typed when explicitly switching to English.
                 if editingManualPhrase { cancelManualPhrase(); effects.append(.refresh) }
-                else if enteringUnicode || searchingUnicode { effects += commit() }
+                else if enteringUnicode || searchingUnicode || enteringPinyinTones { effects += commit() }
                 else if !code.isEmpty { effects.append(insert(code)) }
                 englishMode.toggle()
                 punctuation.reset()
@@ -490,6 +497,61 @@ struct InputEngine {
 
     private var enteringUnicode: Bool {
         !editingManualPhrase && !collectingPhrase && (code.hasPrefix("u+") || code.hasPrefix("U+"))
+    }
+
+    private var enteringPinyinTones: Bool {
+        !editingManualPhrase && !collectingPhrase && (code.hasPrefix("p?") || code.hasPrefix("P?"))
+    }
+
+    private mutating func handlePinyinTones(_ key: InputKey) -> InputResult {
+        let rejected = InputResult(handled: true, effects: [.beep])
+        switch key.code {
+        case 53:
+            code = ""
+        case 51:
+            code.removeLast()
+        case 36, 76:
+            guard let marked = Self.markPinyinTones(code.dropFirst(2)) else { return rejected }
+            return InputResult(handled: true, effects: [insert(marked)])
+        default:
+            guard code.utf8.count < 130, key.text.utf8.count == 1, let byte = key.text.utf8.first,
+                  (65...90).contains(byte) || (97...122).contains(byte) ||
+                  (49...53).contains(byte) || byte == 32 || byte == 39 else { return rejected }
+            code += key.text
+        }
+        return refresh()
+    }
+
+    private static func markPinyinTones(_ input: Substring) -> String? {
+        let marks = ["\u{0304}", "\u{0301}", "\u{030C}", "\u{0300}", ""]
+        var output = ""
+        var syllable = ""
+        for character in input {
+            if character == " " || character == "'" {
+                guard syllable.isEmpty, let last = output.last, last != " ", last != "'" else { return nil }
+                output.append(character)
+            } else if let tone = character.wholeNumberValue, (1...5).contains(tone) {
+                // Prefer a, then e, then o in ou; otherwise mark the last vowel.
+                let position = syllable.firstIndex(where: { $0 == "a" || $0 == "A" })
+                    ?? syllable.firstIndex(where: { $0 == "e" || $0 == "E" })
+                    ?? syllable.range(of: "ou", options: .caseInsensitive)?.lowerBound
+                    ?? syllable.lastIndex(where: { "aeiouüAEIOUÜ".contains($0) })
+                if let position {
+                    syllable.insert(contentsOf: marks[tone - 1], at: syllable.index(after: position))
+                } else if ["m", "n", "ng", "hm", "hng"].contains(syllable.lowercased()),
+                          let nasal = syllable.firstIndex(where: { "mnMN".contains($0) }) {
+                    syllable.insert(contentsOf: marks[tone - 1], at: syllable.index(after: nasal))
+                } else {
+                    return nil
+                }
+                output += syllable
+                syllable = ""
+            } else {
+                syllable.append(character == "v" ? "ü" : character == "V" ? "Ü" : character)
+            }
+        }
+        guard syllable.isEmpty, let last = output.last, last != " ", last != "'" else { return nil }
+        return output.precomposedStringWithCanonicalMapping
     }
 
     private mutating func handleUnicode(_ key: InputKey) -> InputResult {

@@ -72,6 +72,28 @@ struct Session {
 }
 
 func runInputEngineTests() {
+    var tones = Session(wubiCandidates: { code in
+        code == "p" ? [.init(text: "之", remainingCode: "")] : []
+    })
+    tones.type("p?Ni3 hao3")
+    check(tones.marked == "p?Ni3 hao3" && tones.output.isEmpty, "tone entry overrides Wubi candidates and keeps spaces")
+    tones.key("\r", code: 36)
+    check(tones.output == "Nǐ hǎo" && tones.marked.isEmpty, "Return commits marked Pinyin")
+    tones.tapRightShift()
+    tones.type("p?liu2gui4'ou3 nv3ma5")
+    tones.key("\r", code: 76)
+    check(tones.output == "Nǐ hǎoliúguì'ǒu nǚma", "tone placement, syllable boundaries, umlaut and neutral tone work in Pinyin mode")
+    tones.type("p?ma")
+    tones.key("\r", code: 36)
+    check(tones.beeps == 1 && tones.marked == "p?ma", "incomplete tone entry stays editable")
+    tones.key("", code: 51)
+    tones.type("a1")
+    tones.key("", code: 36)
+    check(tones.output.hasSuffix("mā"), "Backspace can correct an unfinished syllable")
+    tones.type("p?ma2")
+    tones.tapLeftShift()
+    check(tones.marked.isEmpty && tones.output.hasSuffix("mā"), "mode changes discard unconfirmed tone entry")
+
     var manyReadings = InputEngine(lookup: { _ in [] }, readings: { _ in ["a", "ai", "an", "ang", "ao"] })
     _ = manyReadings.handle(InputKey(text: "a"))
     _ = manyReadings.handle(InputKey(text: "*"))
