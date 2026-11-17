@@ -7,8 +7,8 @@
 需要 macOS 13 或更新版本和 Xcode Command Line Tools。首次构建先下载词库：
 
 ```bash
-./get-dicts.sh
-./get-pinyin-dict.sh
+./scripts/get-dicts.sh
+./scripts/get-pinyin-dict.sh
 ./scripts/build-macos.sh
 ```
 

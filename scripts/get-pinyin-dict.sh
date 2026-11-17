@@ -1,6 +1,6 @@
 #!/bin/bash
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 prefix='https://raw.githubusercontent.com/rime/rime-pinyin-simp/master'
 mkdir -p licenses
 trap 'rm -f pinyin_simp.txt.download pinyin_simp.txt.tmp' EXIT

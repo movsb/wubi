@@ -32,8 +32,8 @@ xcode-select --install
 
 ```bash
 # 下载五笔和拼音词库
-./get-dicts.sh
-./get-pinyin-dict.sh
+./scripts/get-dicts.sh
+./scripts/get-pinyin-dict.sh
 
 # 构建、测试并安装
 ./scripts/install-macos.sh
@@ -137,7 +137,7 @@ xcode-select --install
 
 ### 雾凇拼音词库下载
 
-运行 `./get-ice-dicts.sh` 下载 [雾凇拼音 cn_dicts](https://github.com/iDvel/rime-ice/tree/main/cn_dicts) 的六个词库（`41448`、`8105`、`base`、`ext`、`others`、`tencent`）到项目根目录的 `cn_dicts/`。同时保留上游 `.dict.yaml` 原文件、转换后的 Tab 分隔 `.txt` 和上游 `LICENSE`；下载内容不提交到 Git。
+运行 `./scripts/get-ice-dicts.sh` 下载 [雾凇拼音 cn_dicts](https://github.com/iDvel/rime-ice/tree/main/cn_dicts) 的六个词库（`41448`、`8105`、`base`、`ext`、`others`、`tencent`）到项目根目录的 `cn_dicts/`。同时保留上游 `.dict.yaml` 原文件、转换后的 Tab 分隔 `.txt` 和上游 `LICENSE`；下载内容不提交到 Git。
 
 构建时将转换后的 TXT 嵌入 Go 查词程序，上游许可证随应用放入 `Resources/licenses/`。五笔编码后按 `*`，Go 查词程序按现有五笔组词规则即时生成编码，与五笔扩展词库一起返回匹配词；六个词库均不常驻加载。选词后仍显示所有单字拼音组合，确认后保存到 `manual.txt`。雾凇词库提供的单字读音也参与组合；缺少五笔单字编码的词跳过。也可在用户词库目录的 `cn_dicts/` 放入相同格式的 TXT 词库。
 

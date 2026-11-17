@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ ! -f pinyin_simp.txt ] || [ ! -f wubi86_jidian.txt ]; then
-  echo '请先运行 ./get-dicts.sh 和 ./get-pinyin-dict.sh 下载词库。' >&2
+  echo '请先运行 ./scripts/get-dicts.sh 和 ./scripts/get-pinyin-dict.sh 下载词库。' >&2
   exit 1
 fi
 mkdir -p build/module-cache

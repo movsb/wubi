@@ -1,7 +1,7 @@
 #!/bin/bash
 # Download the upstream cn_dicts files and plain-text copies for later processing.
 set -euo pipefail
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 prefix='https://raw.githubusercontent.com/iDvel/rime-ice/main'
 dicts=(41448 8105 base ext others tencent)
 staging=$(mktemp -d)

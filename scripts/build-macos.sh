@@ -4,11 +4,11 @@ cd "$(dirname "$0")/.."
 shopt -s nullglob
 dicts=(wubi*.txt)
 if [ ${#dicts[@]} -eq 0 ]; then
-  echo '没有词库，请先运行 ./get-dicts.sh' >&2
+  echo '没有词库，请先运行 ./scripts/get-dicts.sh' >&2
   exit 1
 fi
 if [ ! -f pinyin_simp.txt ]; then
-  echo '没有拼音词库，请先运行 ./get-pinyin-dict.sh' >&2
+  echo '没有拼音词库，请先运行 ./scripts/get-pinyin-dict.sh' >&2
   exit 1
 fi
 dicts+=(pinyin_simp.txt)
