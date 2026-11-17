@@ -42,6 +42,29 @@ func TestQuery(t *testing.T) {
 	}
 }
 
+func TestExcludedWubiCodes(t *testing.T) {
+	root := t.TempDir()
+	resources, data := filepath.Join(root, "resources"), filepath.Join(root, "user")
+	writeFixture(t, resources, "wubi86_jidian.txt", "八\tw\n八\twty\n")
+	writeFixture(t, filepath.Join(data, "external"), "custom.txt", "八\tw\n")
+	writeFixture(t, filepath.Join(data, "cn_dicts"), "custom.txt", "八\tba\n八八\tba ba\n八旁\tba pang\n")
+	writeFixture(t, data, "excluded.txt", "# comment\n八\tw # short code\n八八\twtwt\n八旁\n")
+
+	result, err := queryDetailed(resources, data, "w")
+	if err != nil || !reflect.DeepEqual(result.Words, []string{"八"}) {
+		t.Fatalf("other Wubi codes should survive: %+v, %v", result, err)
+	}
+	writeFixture(t, data, "excluded.txt", "八\tw\n八\twty\n八八\twtwt\n八旁\n")
+	result, err = queryDetailed(resources, data, "w")
+	if err != nil || len(result.Words) != 0 {
+		t.Fatalf("excluded Wubi codes should disappear: %+v, %v", result, err)
+	}
+	result, err = queryByMode(resources, data, "ba", true)
+	if err != nil || !reflect.DeepEqual(result.Words, []string{"八", "八八"}) {
+		t.Fatalf("Pinyin should be unaffected: %+v, %v", result, err)
+	}
+}
+
 func TestMissingOptionalDirectories(t *testing.T) {
 	resources := t.TempDir()
 	got, err := query(resources, filepath.Join(t.TempDir(), "absent"), "a")

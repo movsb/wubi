@@ -32,8 +32,9 @@ private final class CandidateBackgroundView: NSView {
 // Use the same text layout for drawing and hit testing, including wrapped candidates.
 private final class CandidateLabel: NSView {
     static let candidateWord = NSAttributedString.Key("WubiCandidateWord")
-    var onDelete: ((String) -> Void)?
-    private var chosenWord: String?
+    static let candidateCode = NSAttributedString.Key("WubiCandidateCode")
+    var onDelete: ((String, String?) -> Void)?
+    private var chosenEntry: (word: String, code: String?)?
     private var menuClientPID: pid_t?
     var trackingMenuForCurrentApp: Bool {
         guard let menuClientPID else { return false }
@@ -78,7 +79,13 @@ private final class CandidateLabel: NSView {
         let menu = NSMenu()
         let item = NSMenuItem(title: "删除此词条", action: #selector(deleteCandidate(_:)), keyEquivalent: "")
         item.target = self
-        item.representedObject = word
+        item.representedObject = [word]
+        if let code = storage.attribute(Self.candidateCode, at: character, effectiveRange: nil) as? String {
+            let codeItem = NSMenuItem(title: "删除五笔编码 \(code)", action: #selector(deleteCandidate(_:)), keyEquivalent: "")
+            codeItem.target = self
+            codeItem.representedObject = [word, code]
+            menu.addItem(codeItem)
+        }
         menu.addItem(item)
         return menu
     }
@@ -92,17 +99,18 @@ private final class CandidateLabel: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         guard onDelete != nil, let menu = candidateMenu(for: event) else { return }
-        chosenWord = nil
+        chosenEntry = nil
         menuClientPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         NSMenu.popUpContextMenu(menu, with: event, for: self)
-        let word = trackingMenuForCurrentApp ? chosenWord : nil
+        let entry = trackingMenuForCurrentApp ? chosenEntry : nil
         menuClientPID = nil
-        chosenWord = nil
-        if let word { onDelete?(word) }
+        chosenEntry = nil
+        if let entry { onDelete?(entry.word, entry.code) }
     }
 
     @objc private func deleteCandidate(_ sender: NSMenuItem) {
-        chosenWord = sender.representedObject as? String
+        guard let fields = sender.representedObject as? [String], let word = fields.first else { return }
+        chosenEntry = (word, fields.dropFirst().first)
     }
 }
 
@@ -448,8 +456,11 @@ class WubiInputController: IMKInputController {
                 remainingWidth = max(remainingWidth, remaining.size().width)
             }
             if !engine.collectingPhrase && !engine.editingManualPhrase && !engine.searchingUnicode {
-                text.addAttribute(CandidateLabel.candidateWord, value: candidate.text,
-                                  range: NSRange(location: rowStart, length: text.length - rowStart))
+                let range = NSRange(location: rowStart, length: text.length - rowStart)
+                text.addAttribute(CandidateLabel.candidateWord, value: candidate.text, range: range)
+                if !engine.pinyinMode {
+                    text.addAttribute(CandidateLabel.candidateCode, value: code + candidate.remainingCode, range: range)
+                }
             }
         }
         if engine.searchingUnicode {
@@ -465,10 +476,11 @@ class WubiInputController: IMKInputController {
         }
     }
 
-    private func deleteCandidate(_ word: String) {
+    private func deleteCandidate(_ word: String, wubiCode: String?) {
         guard let currentClient: IMKTextInput = client(), !code.isEmpty else { return }
         do {
-            try DictionaryRow.exclude(word, at: DictionaryStore.shared.dataDirectory.appendingPathComponent("excluded.txt"))
+            try DictionaryRow.exclude(word, code: wubiCode,
+                                      at: DictionaryStore.shared.dataDirectory.appendingPathComponent("excluded.txt"))
             guard DictionaryStore.shared.reload() else {
                 throw NSError(domain: "Wubi.Dictionary", code: 4,
                               userInfo: [NSLocalizedDescriptionKey: "排除词条已保存，但词库重新加载失败"])
@@ -517,9 +529,9 @@ class WubiInputController: IMKInputController {
             window.isFloatingPanel = true
             window.hidesOnDeactivate = false
             window.ignoresMouseEvents = false
-            label.onDelete = { [weak self] word in
+            label.onDelete = { [weak self] word, code in
                 guard let self, !self.engine.collectingPhrase, !self.engine.editingManualPhrase else { return }
-                self.deleteCandidate(word)
+                self.deleteCandidate(word, wubiCode: code)
             }
             window.contentView?.addSubview(label)
             panel = window

@@ -121,7 +121,7 @@ struct DictionaryMerger {
         return [codes[0], codes[1], codes[2], codes.last!].map { String($0.prefix(1)) }.joined()
     }
 
-    static func merge(wubiRows: [DictionaryRow], pinyin: PinyinDictionary) -> Result {
+    static func merge(wubiRows: [DictionaryRow], pinyin: PinyinDictionary, exclusions: Set<String> = []) -> Result {
         var original: [Entry] = []
         var seen: [String: Set<String>] = [:]
         var roots: [String: String] = [:]
@@ -147,6 +147,7 @@ struct DictionaryMerger {
                 skipped.append(.init(word: word, missingCharacters: Set(word.map(String.init)).filter { roots[$0] == nil }.sorted()))
                 continue
             }
+            guard !exclusions.contains(word + "\t" + code) else { continue }
             added.append(Entry(row: DictionaryRow(word: word, code: code, weight: 0), order: original.count + added.count))
         }
         var before = Dictionary(grouping: original, by: { $0.row.code })

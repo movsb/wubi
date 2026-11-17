@@ -158,23 +158,21 @@ final class DictionaryStore {
                 }
             }
         }
-        let excludedURL = dataDirectory.appendingPathComponent("excluded.txt")
-        var excluded = Set<String>()
-        if FileManager.default.fileExists(atPath: excludedURL.path) {
-            do {
-                excluded = try DictionaryRow.readExcludedWords(excludedURL)
-            } catch {
-                issues = ["无法读取 excluded.txt，保留此前的运行时词库：\(error.localizedDescription)"]
-                log("Wubi dictionaries: " + issues.joined(separator: "\n"))
-                return false
-            }
+        let excluded: Set<String>
+        do { excluded = try DictionaryRow.readExclusions(dataDirectory.appendingPathComponent("excluded.txt")) }
+        catch {
+            issues = ["无法读取 excluded.txt，保留此前的运行时词库：\(error.localizedDescription)"]
+            log("Wubi dictionaries: " + issues.joined(separator: "\n"))
+            return false
         }
         let bundled = files(resourceDirectory)
         let sourceWubiRows = rows(bundled.filter { $0.lastPathComponent.hasPrefix("wubi") && $0.lastPathComponent != "wubi_merged.txt" })
         let pinyinRows = rows(bundled.filter { $0.lastPathComponent == "pinyin_simp.txt" })
             + rows(FileManager.default.fileExists(atPath: dataDirectory.appendingPathComponent("manual.txt").path)
                    ? [dataDirectory.appendingPathComponent("manual.txt")] : [], userText: true)
-        let wubiRows = sourceWubiRows.filter { !excluded.contains($0.word) }
+        let wubiRows = sourceWubiRows.filter {
+            !excluded.contains($0.word) && !excluded.contains($0.word + "\t" + ($0.wubiCode ?? ""))
+        }
         var newPinyin = PinyinDictionary(rows: pinyinRows.filter { !excluded.contains($0.word) })
         struct Settings: Decodable { let mergePinyinIntoWubi: Bool? }
         let settingsURL = dataDirectory.appendingPathComponent("settings.json")
@@ -189,7 +187,7 @@ final class DictionaryStore {
             log("Wubi dictionaries: " + issues.joined(separator: "\n"))
             return false
         }
-        let merged = enabled ? DictionaryMerger.merge(wubiRows: wubiRows, pinyin: newPinyin) : nil
+        let merged = enabled ? DictionaryMerger.merge(wubiRows: wubiRows, pinyin: newPinyin, exclusions: excluded) : nil
         // Replace snapshots only after reading all sources; existing engine closures see the new data.
         wubi = merged?.dictionary ?? original
         newPinyin.discardMergeMetadata()

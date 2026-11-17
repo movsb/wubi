@@ -59,7 +59,7 @@ final class WordUsageStore {
     }
 
     private static func write(_ counts: [String: Int], to url: URL) throws {
-        let excluded = try DictionaryRow.readExcludedWords(url.deletingLastPathComponent().appendingPathComponent("excluded.txt"))
+        let excluded = try DictionaryRow.readExclusions(url.deletingLastPathComponent().appendingPathComponent("excluded.txt"))
         let text = counts.keys.sorted().filter { validWord($0) && counts[$0]! > 0 && !excluded.contains($0) }
             .map { $0 + "\t" + String(counts[$0]!) + "\n" }.joined()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

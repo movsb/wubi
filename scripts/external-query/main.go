@@ -217,6 +217,9 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 					return
 				}
 				spelling := strings.ToLower(fields[1])
+				if excluded[fields[0]+"\t"+spelling] {
+					return
+				}
 				chars := []rune(fields[0])
 				if i == 0 && len(chars) == 1 && validCode(spelling) && len(spelling) >= 2 && !strings.HasPrefix(spelling, "z") {
 					key := fields[0] + "\t" + spelling
@@ -315,7 +318,7 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 				} else {
 					spelling = phraseCode(fields[0], roots)
 				}
-				if spelling != "" && strings.HasPrefix(spelling, code) {
+				if strings.HasPrefix(spelling, code) && (pinyin || !excluded[fields[0]+"\t"+spelling]) {
 					matches = append(matches, match{fields[0], spelling == code})
 				}
 			})
@@ -345,7 +348,7 @@ func queryByMode(resources, data, code string, pinyin bool) (queryResponse, erro
 				if matched, exact := matchReadings(word, code, separator, allReadings); matched {
 					matches = append(matches, match{word, exact})
 				}
-			} else if spelling := phraseCode(word, roots); strings.HasPrefix(spelling, code) {
+			} else if spelling := phraseCode(word, roots); strings.HasPrefix(spelling, code) && !excluded[word+"\t"+spelling] {
 				matches = append(matches, match{word, spelling == code})
 			}
 		})

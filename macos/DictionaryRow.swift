@@ -5,25 +5,27 @@ struct DictionaryRow {
     let code: String
     let weight: Double
 
-    static func readExcludedWords(_ url: URL) throws -> Set<String> {
+    static func readExclusions(_ url: URL) throws -> Set<String> {
         guard FileManager.default.fileExists(atPath: url.path) else { return [] }
         let contents = try String(contentsOf: url, encoding: .utf8)
         return Set(contents.components(separatedBy: .newlines).compactMap { raw in
-            let word = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+            let entry = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
                 .trimmingCharacters(in: .whitespaces.union(CharacterSet(charactersIn: "\u{feff}")))
-            return word.isEmpty ? nil : word
+            return entry.isEmpty ? nil : entry
         })
     }
 
-    static func exclude(_ word: String, at url: URL) throws {
-        guard !word.isEmpty, word.rangeOfCharacter(from: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#"))) == nil else {
+    static func exclude(_ word: String, code: String? = nil, at url: URL) throws {
+        guard !word.isEmpty, word.rangeOfCharacter(from: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "#"))) == nil,
+              code.map({ (1...4).contains($0.utf8.count) && $0.utf8.allSatisfy { (97...122).contains($0) } }) ?? true else {
             throw NSError(domain: "Wubi.Dictionary", code: 3,
                           userInfo: [NSLocalizedDescriptionKey: "无法排除无效词条"])
         }
-        guard try !readExcludedWords(url).contains(word) else { return }
+        let entry = code.map { word + "\t" + $0 } ?? word
+        guard try !readExclusions(url).contains(entry) else { return }
         var contents = FileManager.default.fileExists(atPath: url.path) ? try String(contentsOf: url, encoding: .utf8) : ""
         if !contents.isEmpty && !contents.hasSuffix("\n") && !contents.hasSuffix("\r") { contents += "\n" }
-        contents += word + "\n"
+        contents += entry + "\n"
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try contents.write(to: url, atomically: true, encoding: .utf8)
     }

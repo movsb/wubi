@@ -97,7 +97,7 @@ func runDictionaryStoreTests() throws {
     let resources = temporary.appendingPathComponent("Resources", isDirectory: true)
     let data = temporary.appendingPathComponent("UserData", isDirectory: true)
     let baseURL = resources.appendingPathComponent("wubi86_jidian.txt")
-    let baseText = "甲\tabcd\t20\n乙\tefgh\t20\n丙\tijkl\t20\n原词\tabef\t80\n我\tq\t20\n金\tq\t10\n"
+    let baseText = "甲\tabcd\t20\n乙\tefgh\t20\n丙\tijkl\t20\n原词\tabef\t80\n我\tq\t20\n金\tq\t10\n金\tqqqq\t10\n"
     try write(baseText, to: baseURL)
     try write("甲乙\tjia yi\t100\n原词\tyuan ci\t5\n你\tni\t1000\n", to: resources.appendingPathComponent("pinyin_simp.txt"))
     let store = DictionaryStore(resourceDirectory: resources, dataDirectory: data, log: { _ in })
@@ -108,6 +108,16 @@ func runDictionaryStoreTests() throws {
     try write("旧词\tjiu ci\n", to: data.appendingPathComponent("Dictionaries/ignored.txt"))
     check(store.reload() && store.pinyin.lookup("jiuci").isEmpty, "legacy Dictionaries files are not loaded")
     check(FileManager.default.fileExists(atPath: data.appendingPathComponent("tmp/dictionary-merge-report.md").path), "runtime report is written to disposable tmp directory")
+    let exclusions = data.appendingPathComponent("excluded.txt")
+    try DictionaryRow.exclude("金", code: "q", at: exclusions)
+    try DictionaryRow.exclude("甲乙", code: "abef", at: exclusions)
+    check(store.reload() && store.wubi.lookup("q") == ["我"] && store.wubi.lookup("qqqq") == ["金"],
+          "excluding one Wubi code preserves the other codes for the word")
+    check(store.wubi.lookup("abef") == ["原词"] && store.pinyin.lookup("jiayi") == ["甲乙"],
+          "a generated Wubi code can be excluded independently of Pinyin")
+    try FileManager.default.removeItem(at: exclusions)
+    check(store.reload() && store.wubi.lookup("q") == ["我", "金"] && store.wubi.lookup("abef").first == "甲乙",
+          "removing code exclusions restores the original mappings")
     let usage = WordUsageStore(url: temporary.appendingPathComponent("frequencies.txt"))
     var engine = InputEngine(lookup: { store.wubi.lookup($0) }, pinyinLookup: { store.pinyin.lookup($0) }, usage: usage)
     check(store.wubi.candidates(prefix: "aei").isEmpty, "empty prefix result can be cached before user dictionary update")
